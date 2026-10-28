@@ -6,7 +6,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 
-use super::{Dir, Entry, EntryKind, File, StorageError};
+use super::{Dir, Entry, EntryKind, File, StorageError, media::probe_file};
 
 /// One page of a directory listing.
 pub struct ListPage {
@@ -138,15 +138,16 @@ fn read_keys(dir: &Path) -> Result<Vec<SortKey>, StorageError> {
 
 /// `None` when `name` is gone or is no longer a plain file or directory.
 fn read_entry(dir: &Path, name: String) -> io::Result<Option<Entry>> {
-    let meta = match fs::symlink_metadata(dir.join(&name)) {
+    let path = dir.join(&name);
+    let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    to_entry(name, &meta)
+    to_entry(name, &meta, &path)
 }
 
-fn to_entry(name: String, meta: &Metadata) -> io::Result<Option<Entry>> {
+fn to_entry(name: String, meta: &Metadata, path: &Path) -> io::Result<Option<Entry>> {
     let modified_at = DateTime::<Utc>::from(meta.modified()?);
     let created_at = meta.created().ok().map(DateTime::<Utc>::from);
     let file_type = meta.file_type();
@@ -158,11 +159,14 @@ fn to_entry(name: String, meta: &Metadata) -> io::Result<Option<Entry>> {
             created_at,
         }))
     } else if file_type.is_file() {
+        let probe = probe_file(path);
         Some(Entry::File(File {
             name,
             modified_at,
             created_at,
             size: meta.len(),
+            mime: probe.mime,
+            image: probe.image,
         }))
     } else {
         None

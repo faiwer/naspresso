@@ -332,6 +332,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "imagesize"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65b27460c2c92b037f3f94c538ed9a3342f3fdf923606781629ccb35f82d042a"
+
+[[package]]
 name = "infer"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -628,7 +634,10 @@ dependencies = [
  "base64",
  "chrono",
  "dotenvy",
+ "imagesize",
  "infer",
+ "libc",
+ "memchr",
  "mime_guess",
  "serde",
  "thiserror",

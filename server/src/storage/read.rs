@@ -10,12 +10,10 @@ use tokio::{
 };
 use twox_hash::XxHash3_64;
 
-use super::StorageError;
-
-/// How much of the file is read to recognize its type by magic bytes.
-const SNIFF_LEN: u64 = 8 * 1024;
-
-const FALLBACK_MIME: &str = "application/octet-stream";
+use super::{
+    StorageError,
+    media::{SNIFF_LEN, sniff_mime},
+};
 
 pub struct OpenedFile {
     pub file: fs::File,
@@ -50,17 +48,14 @@ pub async fn open_file(path: &Path) -> Result<OpenedFile, StorageError> {
 impl OpenedFile {
     /// The MIME type by magic bytes, then by extension. Leaves the file at the start.
     pub async fn mime(&mut self) -> Result<&'static str, StorageError> {
-        let mut head = Vec::with_capacity(SNIFF_LEN as usize);
+        let mut head = Vec::with_capacity(SNIFF_LEN);
         (&mut self.file)
-            .take(SNIFF_LEN)
+            .take(SNIFF_LEN as u64)
             .read_to_end(&mut head)
             .await?;
         self.file.seek(SeekFrom::Start(0)).await?;
 
-        Ok(infer::get(&head)
-            .map(|kind| kind.mime_type())
-            .or_else(|| mime_guess::from_path(&self.path).first_raw())
-            .unwrap_or(FALLBACK_MIME))
+        Ok(sniff_mime(&head, &self.path))
     }
 }
 

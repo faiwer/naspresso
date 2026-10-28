@@ -4,6 +4,8 @@ use chrono::{
 };
 use serde::Serialize;
 
+use super::ImageMetadata;
+
 #[derive(Serialize)]
 pub struct File {
     pub name: String,
@@ -14,4 +16,8 @@ pub struct File {
     pub created_at: Option<DateTime<Utc>>,
     /// Bytes.
     pub size: u64,
+    /// By magic bytes for images, by extension for everything else.
+    pub mime: &'static str,
+    /// `None` for non-images and for images whose headers couldn't be read.
+    pub image: Option<ImageMetadata>,
 }
