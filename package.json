@@ -1,0 +1,17 @@
+{
+  "name": "naspresso",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client"
+  ],
+  "scripts": {
+    "prepare": "prek install --hook-type pre-commit --hook-type pre-push",
+    "lint": "prek run --all-files",
+    "typecheck": "npm run typecheck -w client",
+    "clippy": "cargo clippy --manifest-path server/Cargo.toml --all-targets --locked -- -D warnings"
+  },
+  "devDependencies": {
+    "@j178/prek": "^0.5.7"
+  }
+}

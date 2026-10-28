@@ -1,0 +1,19 @@
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        language: system
+        entry: cargo fmt --all
+        types: [rust]
+        pass_filenames: false
+
+      - id: clippy
+        name: clippy
+        language: system
+        entry: cargo clippy --all-targets --locked -- -D warnings
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-push]

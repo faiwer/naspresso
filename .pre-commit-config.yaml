@@ -1,0 +1,3 @@
+# prek workspace root. Each subproject (client/, server/) has its own config;
+# its hooks run from inside that subproject with paths relative to it.
+repos: []

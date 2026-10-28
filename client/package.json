@@ -1,0 +1,22 @@
+{
+  "name": "client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsrs --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsrs --noEmit --fast",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
+    "tsrs": "0.20.1-ts7.1.0-beta",
+    "vite": "^8.3.5"
+  }
+}
