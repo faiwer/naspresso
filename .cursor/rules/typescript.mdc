@@ -27,7 +27,9 @@ alwaysApply: false
 - Event handlers are `onX`, not `handleX`.
 - `{@link Foo}` in JSDoc, not rustdoc-style `` [`Foo`] ``.
 - Formatting is oxfmt with `client/.oxfmtrc.json` (double quotes, 80
-  columns) — don't hand-format.
+  columns, sorted imports) — don't hand-format. Run it from the root as
+  `npm run format -- <paths relative to client/>`. Never bare
+  `npx oxfmt`: outside `client/` it silently falls back to defaults.
 
 ## API layer
 
@@ -58,5 +60,5 @@ alwaysApply: false
 
 ## Checks
 
-`npm run typecheck` (tsrs) and `npx --no -- oxlint --deny-warnings client`
-must pass.
+`npm run typecheck` (tsrs), `npx --no -- oxlint --deny-warnings client` and
+`npm run format:check -w client` must pass.

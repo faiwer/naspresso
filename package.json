@@ -10,6 +10,7 @@
     "postinstall": "patch-package --patch-dir client/patches",
     "lint": "prek run --all-files",
     "typecheck": "npm run typecheck -w client",
+    "format": "npm run format -w client --",
     "clippy": "cargo clippy --manifest-path server/Cargo.toml --all-targets --locked -- -D warnings"
   },
   "devDependencies": {
