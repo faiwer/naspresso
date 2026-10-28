@@ -13,7 +13,12 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check"
   },
+  "dependencies": {
+    "react": "npm:@faiwer/react@^19.0.12",
+    "react-dom": "npm:@faiwer/react-dom@^19.0.7"
+  },
   "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
     "tsrs": "0.20.1-ts7.1.0-beta",

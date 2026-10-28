@@ -1,21 +1,20 @@
+import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig(({ command, mode }) => {
-  if (command !== "serve") {
-    return {};
-  }
-
-  return {
-    server: {
-      proxy: {
-        "/api": {
-          target: getServerUrl(mode),
-          rewrite: (path) => path.replace(/^\/api/, ""),
-        },
-      },
-    },
-  };
-});
+export default defineConfig(({ command, mode }) => ({
+  plugins: [react()],
+  server:
+    command === "serve"
+      ? {
+          proxy: {
+            "/api": {
+              target: getServerUrl(mode),
+              rewrite: (path) => path.replace(/^\/api/, ""),
+            },
+          },
+        }
+      : undefined,
+}));
 
 const SERVER_DIR = decodeURIComponent(new URL("../server", import.meta.url).pathname);
 
