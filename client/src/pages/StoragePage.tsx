@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router";
 
 import { Frame } from "../com/layout/Frame";
 import { Gap } from "../com/layout/Gap";
+import { PageTitle } from "../com/layout/PageTitle";
 import { StorageListing } from "../com/storage/StorageListing";
 import {
   StorageModeSwitch,
@@ -48,6 +49,7 @@ export const StoragePage = () => {
         </>
       }
     >
+      <PageTitle title={segments.at(-1) ?? "Storage"} />
       {scrollContainer && (
         <StorageListing
           key={path}
