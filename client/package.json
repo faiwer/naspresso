@@ -14,8 +14,10 @@
     "format:check": "oxfmt --check"
   },
   "dependencies": {
+    "antd": "6.3.7",
     "react": "npm:@faiwer/react@^19.0.12",
-    "react-dom": "npm:@faiwer/react-dom@^19.0.7"
+    "react-dom": "npm:@faiwer/react-dom@^19.0.7",
+    "react-router": "7.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.2",

@@ -9,7 +9,7 @@
 npm install   # installs deps and the prek pre-commit and pre-push hooks
 ```
 
-If your npm config has `ignore-scripts=true`, install the hooks with `npm run prepare`.
+If your npm config has `ignore-scripts=true`, run `npm run postinstall && npm run prepare` afterwards: the first applies `client/patches` (antd needs a fix for `@faiwer/react`), the second installs the hooks.
 
 The pre-commit hook runs on staged files only:
 

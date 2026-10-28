@@ -7,11 +7,16 @@
   ],
   "scripts": {
     "prepare": "prek install --hook-type pre-commit --hook-type pre-push",
+    "postinstall": "patch-package --patch-dir client/patches",
     "lint": "prek run --all-files",
     "typecheck": "npm run typecheck -w client",
     "clippy": "cargo clippy --manifest-path server/Cargo.toml --all-targets --locked -- -D warnings"
   },
   "devDependencies": {
-    "@j178/prek": "^0.5.7"
+    "@j178/prek": "^0.5.7",
+    "patch-package": "8.0.1"
+  },
+  "overrides": {
+    "@rc-component/input": "1.1.2"
   }
 }
