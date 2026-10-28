@@ -14,6 +14,9 @@ pub enum StorageError {
     #[error("not a directory")]
     NotADirectory,
 
+    #[error("not a file")]
+    NotAFile,
+
     #[error(transparent)]
     Io(#[from] io::Error),
 }

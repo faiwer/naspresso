@@ -4,8 +4,10 @@ mod entities;
 mod error;
 mod list;
 mod path;
+mod read;
 
 pub use entities::{Dir, Entry, File};
 pub use error::StorageError;
 pub use list::list_dir;
 pub use path::resolve;
+pub use read::open_file;

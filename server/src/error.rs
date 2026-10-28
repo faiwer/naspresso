@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("not found")]
     NotFound,
 
+    #[error("range requests are not supported")]
+    RangeNotSupported,
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -33,6 +36,7 @@ impl AppError {
         match self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::RangeNotSupported => StatusCode::RANGE_NOT_SATISFIABLE,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -41,6 +45,7 @@ impl AppError {
         match self {
             AppError::BadRequest(_) => "bad_request",
             AppError::NotFound => "not_found",
+            AppError::RangeNotSupported => "range_not_supported",
             AppError::Internal(_) => "internal_error",
         }
     }
@@ -49,7 +54,7 @@ impl AppError {
 impl From<StorageError> for AppError {
     fn from(err: StorageError) -> Self {
         match err {
-            StorageError::InvalidPath(_) | StorageError::NotADirectory => {
+            StorageError::InvalidPath(_) | StorageError::NotADirectory | StorageError::NotAFile => {
                 AppError::BadRequest(err.to_string())
             }
             StorageError::NotFound => AppError::NotFound,
