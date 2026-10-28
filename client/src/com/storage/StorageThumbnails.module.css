@@ -43,13 +43,20 @@
   );
 }
 
-.folder {
+.icon {
   display: flex;
   aspect-ratio: 1;
   align-items: center;
   justify-content: center;
-  color: var(--color-folder);
   font-size: 5rem;
+}
+
+.folder {
+  color: var(--color-folder);
+}
+
+.file {
+  color: var(--color-file);
 }
 
 .name {

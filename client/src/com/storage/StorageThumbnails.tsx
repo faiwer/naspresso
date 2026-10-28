@@ -1,4 +1,4 @@
-import { FolderOpenFilled } from "@ant-design/icons";
+import { FileFilled, FolderOpenFilled } from "@ant-design/icons";
 import { Skeleton } from "antd";
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
@@ -41,18 +41,7 @@ const Thumbnail = ({ entry, segments }: ThumbnailProps) => {
   const { name } = entry;
   const content = (
     <>
-      {entry.kind === "dir" ? (
-        <div className={styles.folder}>
-          <FolderOpenFilled />
-        </div>
-      ) : (
-        <div className={styles.frame}>
-          <div
-            className={styles.preview}
-            style={getPreviewStyle(entry.image)}
-          />
-        </div>
-      )}
+      <ThumbnailPreview entry={entry} />
       <div className={styles.name} title={name}>
         {name}
       </div>
@@ -78,6 +67,29 @@ const Thumbnail = ({ entry, segments }: ThumbnailProps) => {
   );
 };
 
+/** A folder or file icon, or a box shaped like the image. */
+const ThumbnailPreview = ({ entry }: { entry: StorageEntry }) => {
+  if (entry.kind === "dir") {
+    return (
+      <div className={`${styles.icon} ${styles.folder}`}>
+        <FolderOpenFilled />
+      </div>
+    );
+  }
+  if (!entry.image) {
+    return (
+      <div className={`${styles.icon} ${styles.file}`}>
+        <FileFilled />
+      </div>
+    );
+  }
+  return (
+    <div className={styles.frame}>
+      <div className={styles.preview} style={getPreviewStyle(entry.image)} />
+    </div>
+  );
+};
+
 const ThumbnailSkeleton = () => (
   <div className={styles.skeleton}>
     <Skeleton.Node active styles={PREVIEW_SKELETON_STYLES} />
@@ -87,10 +99,9 @@ const ThumbnailSkeleton = () => (
 
 /**
  * Fits the preview in its square frame with the image's proportions: full
- * width when landscape, full height when portrait. Non-images are square.
+ * width when landscape, full height when portrait.
  */
-const getPreviewStyle = (image: ImageMetadata | null): CSSProperties => {
-  const { width, height } = image ?? { width: 1, height: 1 };
+const getPreviewStyle = ({ width, height }: ImageMetadata): CSSProperties => {
   const aspectRatio = `${width} / ${height}`;
   return width >= height
     ? { aspectRatio, width: "100%" }
