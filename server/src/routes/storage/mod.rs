@@ -1,5 +1,6 @@
 //! `/storage/*` endpoints.
 
+mod cursor;
 mod file;
 mod ls;
 mod router;

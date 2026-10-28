@@ -11,7 +11,7 @@ pub enum Entry {
 }
 
 /// Declaration order is the listing order: directories first.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EntryKind {
     Dir,
     File,

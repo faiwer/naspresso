@@ -6,8 +6,8 @@ mod list;
 mod path;
 mod read;
 
-pub use entities::{Dir, Entry, File};
+pub use entities::{Dir, Entry, EntryKind, File};
 pub use error::StorageError;
-pub use list::list_dir;
+pub use list::{EntryKey, list_dir};
 pub use path::resolve;
 pub use read::open_file;

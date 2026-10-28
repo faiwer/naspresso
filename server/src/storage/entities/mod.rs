@@ -5,5 +5,5 @@ mod entry;
 mod file;
 
 pub use dir::Dir;
-pub use entry::Entry;
+pub use entry::{Entry, EntryKind};
 pub use file::File;
