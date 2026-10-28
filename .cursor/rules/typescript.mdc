@@ -1,0 +1,59 @@
+---
+description: TypeScript and React conventions for the client — style, API layer, effects, @faiwer/react
+globs: client/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# TypeScript & React conventions (client)
+
+## Style
+
+- Exports first, then private types, constants and helpers. The reader sees
+  what the file is for on the first screen.
+- Always brace `if` / `for` / `while` bodies, including early returns.
+- Functions are verbs (`parseStorageUrl`); components are nouns.
+- API functions start with `get` / `fetch` / `create` / … (`getHealth`,
+  `getListStorage`), not a bare Rust-style verb like `listStorage`.
+- Components and one-expression helpers are arrow functions:
+  `export const StoragePage = () => { … }`.
+- `null` for "no value", not `undefined`. Use `== null` / truthiness checks
+  unless `null` and `undefined` genuinely mean different things.
+- No `!` non-null assertions to appease the checker — restructure instead.
+  (The only accepted one is `document.getElementById("root")!` in `main.tsx`.)
+- No `readonly` without a real contract behind it.
+- Descriptive names; one-letter names only for loop counters and math.
+- Event handlers are `onX`, not `handleX`.
+- `{@link Foo}` in JSDoc, not rustdoc-style `` [`Foo`] ``.
+- Formatting is oxfmt's default (double quotes) — don't hand-format.
+
+## API layer
+
+- All network calls go through `client/src/api/core.ts` (`apiGet`). Never
+  call `fetch` from components.
+- Per area: `api/<area>.io.ts` holds zod schemas and the inferred types,
+  `api/<area>.ts` holds the functions (`getListStorage`, `getHealth`).
+- The wire is snake_case; `core.ts` snake_cases query keys and camelizes
+  responses. Everything outside `core.ts` is camelCase only — no
+  `is_dir` in TS code.
+- Errors are typed (`NetworkError`, `HttpError`, `DecodeError`). Don't
+  catch generically and swallow; show the failure or let it propagate.
+
+## React
+
+- `react` is `@faiwer/react` (aliased in `package.json`). It lacks some
+  newer APIs (`use`, `useOptimistic`, …): check before relying on one.
+  Third-party React libraries are pinned to versions already proven in
+  `~/cu/tengri-xc/client`.
+- Loading data: `useAsyncData((signal) => apiFn(…, { signal }), deps)` from
+  `core/hooks`. Other async effects: `useAsyncEffect`. Both own the
+  `AbortController`; don't hand-roll `useEffect` + `.then`.
+- Deps of those hooks aren't linted: list what should re-run the effect,
+  not everything the closure reads.
+- Errors nobody handles go to `trackError` (`core/errors`), not `console`.
+- No reflexive `useCallback` / `useMemo`.
+- Pages live in `pages/`, routes are declared in `App.tsx`.
+
+## Checks
+
+`npm run typecheck` (tsrs) and `npx --no -- oxlint --deny-warnings client`
+must pass.

@@ -1,0 +1,80 @@
+---
+description: Rust conventions for the server crate — layout, mod.rs glossaries, errors, config, wire format
+globs: server/**/*.rs
+alwaysApply: false
+---
+
+# Rust conventions (server)
+
+## `mod.rs` is a glossary
+
+A `mod.rs` holds a one-line `//!` header, `mod` declarations and curated
+`pub use` re-exports. Nothing else: no handlers, no routers, no types, no
+helpers. Logic goes into a named sibling file (`router.rs`, `list.rs`, …).
+
+```rust
+// ✅ server/src/storage/mod.rs
+//! Files under the `STORAGE` root. Knows nothing about HTTP.
+
+mod error;
+mod list;
+mod path;
+
+pub use error::StorageError;
+pub use list::{Entry, list_dir};
+pub use path::resolve;
+```
+
+- Submodules are private `mod`; the `pub use` list is the public surface.
+  No `pub mod`, no `pub use foo::*`.
+- Visibility is as narrow as callers allow (`pub(super)` before `pub`). Don't
+  widen "in case".
+- A file that needs `// --- section ---` dividers wants splitting instead.
+
+## Layout
+
+- `src/<domain>/` — a domain (`storage/`, later `auth/`, …). Pure logic and
+  I/O, no axum/HTTP types. Domain errors are a `thiserror` enum in
+  `<domain>/error.rs`.
+- `src/routes/<area>/` — thin HTTP handlers: extract, call the domain, map
+  the result to a response DTO. One file per endpoint (`ls.rs`), plus
+  `router.rs` composing them.
+- Top-level files are app-wide plumbing: `config.rs`, `state.rs`,
+  `error.rs`, `telemetry.rs`, `main.rs`. When one grows (middlewares, …),
+  turn it into a folder with the same glossary `mod.rs`.
+
+## Errors
+
+- Handlers return `Result<_, AppError>`. Each domain error gets an
+  `impl From<DomainError> for AppError` in `error.rs`, so handlers just use
+  `?`.
+- Error messages reach the client: never put absolute server paths or
+  other internals in them. `AppError::Internal` is logged and replaced with
+  a generic message.
+- `anyhow` is for `main`/startup only, not for domain code.
+
+## Config
+
+- Config is parsed once in `main` and shared as `Arc<Config>` in `AppState`.
+  Never call `std::env::var` elsewhere.
+
+## Wire format
+
+- Field names are snake_case on the wire, same as Rust. No
+  `#[serde(rename_all = "camelCase")]` — the client converts at its API
+  boundary.
+- Domain entities (`storage::Entry`, …) derive `Serialize` and are returned
+  as is. Add a separate response DTO next to the handler only once the wire
+  shape has to differ (hidden fields, different units).
+
+## User-supplied paths
+
+Reject, don't normalize: `.`, `..`, empty segments in the middle, or anything
+escaping the root is a `400`. Symlinks are never followed: hidden from
+listings, and a `404` anywhere on a requested path. Every filesystem access
+goes through `storage::resolve`.
+
+## Checks
+
+`cargo fmt`, `npm run clippy` (`-D warnings`), and
+`cargo test --manifest-path server/Cargo.toml` must pass.

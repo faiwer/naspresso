@@ -1,0 +1,40 @@
+---
+description: Cross-cutting workflow for the naspresso monorepo (Rust server + React client)
+alwaysApply: true
+---
+
+# naspresso repo conventions
+
+## Layout
+
+- `server/` — Rust (axum). Config comes from `server/.env`, loaded from
+  `CARGO_MANIFEST_DIR` so it works from any CWD. Real env vars override it.
+- `client/` — Vite + React (`@faiwer/react`) + antd + react-router. In dev,
+  Vite proxies `/api/*` to the server's `HOST:PORT` from `server/.env`.
+- Root `package.json` is an npm workspace; hooks run via `prek` (per-file
+  formatters and linters on pre-commit, clippy on pre-push).
+
+## Never touch git staging or commit unasked
+
+The user stages line by line. No `git add`, `git stash`, `git reset`,
+`git restore --staged`, or `git commit` unless the latest message asks for
+it. Inspect with `git diff` / `git show`.
+
+
+## Running things
+
+- The user runs their own server (`:3000`) and Vite (`:5173`). Never start
+  long-lived watchers for them, and never `pkill` by name.
+- To test end to end: run the built binary with
+  `HOST=127.0.0.1 PORT=3917` (Vite on `5917` if needed), start, probe and
+  kill by `$!` PID in a **single** shell call. Background processes don't
+  survive between calls.
+- Don't `export` env vars in the shell — the session persists, and
+  leftovers override `server/.env` in later runs. Prefix the command
+  instead (`PORT=3917 ./server`).
+
+## Comments
+
+Comments explain the code, not the conversation: no "as requested",
+"per the user", or "changed from X". One sentence, only for what the code
+can't say.
