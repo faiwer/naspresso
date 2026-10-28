@@ -12,10 +12,28 @@ export const StorageDirIo = StorageEntryBaseIo.extend({
   kind: z.literal("dir"),
 });
 
+/**
+ * How an image carries high dynamic range: `gain_map` is an SDR image plus a
+ * gain map (Ultra HDR, ISO 21496-1, Apple); `pq` and `hlg` are HDR transfer
+ * functions.
+ */
+export const HdrIo = z.enum(["none", "gain_map", "pq", "hlg"]);
+
+/** From the image's headers. Pixels as stored: EXIF orientation isn't applied. */
+export const ImageMetadataIo = z.object({
+  width: z.number(),
+  height: z.number(),
+  hdr: HdrIo,
+});
+
 export const StorageFileIo = StorageEntryBaseIo.extend({
   kind: z.literal("file"),
   /** Bytes. */
   size: z.number(),
+  /** By magic bytes for images, by extension for everything else. */
+  mime: z.string(),
+  /** `null` for non-images and for images whose headers couldn't be read. */
+  image: ImageMetadataIo.nullable(),
 });
 
 /** One entry of `GET /storage/ls`. */
@@ -33,6 +51,8 @@ export const StorageListPageIo = z.object({
   total: z.number(),
 });
 
+export type Hdr = z.infer<typeof HdrIo>;
+export type ImageMetadata = z.infer<typeof ImageMetadataIo>;
 export type StorageDir = z.infer<typeof StorageDirIo>;
 export type StorageFile = z.infer<typeof StorageFileIo>;
 export type StorageEntry = z.infer<typeof StorageEntryIo>;

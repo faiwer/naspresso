@@ -1,9 +1,10 @@
 import { FolderOpenFilled } from "@ant-design/icons";
 import { Skeleton } from "antd";
+import type { CSSProperties } from "react";
 import { Link } from "react-router";
 
 import { getFileUrl } from "../../api/storage";
-import type { StorageEntry } from "../../api/storage.io";
+import type { ImageMetadata, StorageEntry } from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
 import { joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
@@ -45,7 +46,12 @@ const Thumbnail = ({ entry, segments }: ThumbnailProps) => {
           <FolderOpenFilled />
         </div>
       ) : (
-        <div className={styles.preview} />
+        <div className={styles.frame}>
+          <div
+            className={styles.preview}
+            style={getPreviewStyle(entry.image)}
+          />
+        </div>
       )}
       <div className={styles.name} title={name}>
         {name}
@@ -78,6 +84,18 @@ const ThumbnailSkeleton = () => (
     <Skeleton.Input active block size="small" className={styles.skeletonName} />
   </div>
 );
+
+/**
+ * Fits the preview in its square frame with the image's proportions: full
+ * width when landscape, full height when portrait. Non-images are square.
+ */
+const getPreviewStyle = (image: ImageMetadata | null): CSSProperties => {
+  const { width, height } = image ?? { width: 1, height: 1 };
+  const aspectRatio = `${width} / ${height}`;
+  return width >= height
+    ? { aspectRatio, width: "100%" }
+    : { aspectRatio, height: "100%" };
+};
 
 /** Stretches the node to the tile's width, square like a preview. */
 const PREVIEW_SKELETON_STYLES = {

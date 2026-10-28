@@ -27,8 +27,14 @@
   margin-top: 0.25rem;
 }
 
-.preview {
+.frame {
+  display: flex;
   aspect-ratio: 1;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.preview {
   border-radius: 0.25rem;
   background: linear-gradient(
     135deg,
