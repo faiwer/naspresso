@@ -1,0 +1,21 @@
+:root {
+  color-scheme: light;
+
+  --color-text: #1f1f1f;
+  --color-page-bg: #f0f0f0;
+  --color-surface-bg: #fff;
+  --color-border: #e0e0e0;
+  --color-shadow: rgb(0 0 0 / 6%);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--color-text);
+  background: var(--color-page-bg);
+}

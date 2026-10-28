@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { getListStorage } from "../api/storage";
+import { Frame } from "../com/layout/Frame";
 import { useAsyncData } from "../core/hooks/useAsyncData";
 import { parseStorageUrl, routes } from "../core/routes";
 
@@ -7,7 +8,13 @@ import { parseStorageUrl, routes } from "../core/routes";
  * Lists a directory of `STORAGE`. Mounted at `/storage/*`; the rest of the URL is the
  * directory path, built by `routes.storage`.
  */
-export const StoragePage = () => {
+export const StoragePage = () => (
+  <Frame>
+    <StorageListing />
+  </Frame>
+);
+
+const StorageListing = () => {
   const segments = parseStorageUrl(useLocation().pathname);
   const path = "/" + segments.join("/");
   const listing = useAsyncData((signal) => getListStorage(path, { signal }), [path]);

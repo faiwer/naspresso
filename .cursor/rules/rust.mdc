@@ -55,6 +55,7 @@ pub use path::resolve;
 
 ## Config
 
+- Some env vars are required — fail at startup (`Config::from_env`).
 - Config is parsed once in `main` and shared as `Arc<Config>` in `AppState`.
   Never call `std::env::var` elsewhere.
 
