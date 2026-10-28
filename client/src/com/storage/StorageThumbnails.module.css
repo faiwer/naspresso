@@ -1,0 +1,50 @@
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.item {
+  width: 8rem;
+  padding: 0.3rem;
+  border-radius: 0.5rem;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.item:hover {
+  color: inherit;
+  background: var(--color-hover-bg);
+}
+
+.preview {
+  aspect-ratio: 1;
+  border-radius: 0.25rem;
+  background: linear-gradient(
+    135deg,
+    var(--color-thumb-from),
+    var(--color-thumb-to)
+  );
+}
+
+.folder {
+  display: flex;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-folder);
+  font-size: 5rem;
+}
+
+.name {
+  display: -webkit-box;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: break-word;
+  text-align: center;
+  font-size: 0.8rem;
+}

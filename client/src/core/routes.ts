@@ -2,7 +2,8 @@ export const routes = {
   home: () => "/",
   /** A directory of `STORAGE`, given as path segments. Spaces are written as `+`. */
   storage: (segments: string[] = []) =>
-    STORAGE_URL + segments.map((segment) => "/" + encodeSegment(segment)).join(""),
+    STORAGE_URL +
+    segments.map((segment) => "/" + encodeSegment(segment)).join(""),
 };
 
 /**
@@ -10,7 +11,11 @@ export const routes = {
  * already decoded `%2B` into `+`, which would then be indistinguishable from an encoded space.
  */
 export const parseStorageUrl = (pathname: string): string[] =>
-  pathname.slice(STORAGE_URL.length).split("/").filter(Boolean).map(decodeSegment);
+  pathname
+    .slice(STORAGE_URL.length)
+    .split("/")
+    .filter(Boolean)
+    .map(decodeSegment);
 
 const STORAGE_URL = "/storage";
 

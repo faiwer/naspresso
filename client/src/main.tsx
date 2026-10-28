@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
+
 import { App } from "./App";
+
 import "./global.css";
 
 createRoot(
@@ -10,7 +12,10 @@ createRoot(
         testMode: true,
         transformSource: (source) => ({
           ...source,
-          fileName: source.fileName.replace(/^.+\/src/, location.origin + "/src"),
+          fileName: source.fileName.replace(
+            /^.+\/src/,
+            location.origin + "/src",
+          ),
         }),
       }
     : undefined,

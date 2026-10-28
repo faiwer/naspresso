@@ -19,7 +19,10 @@ export const StorageFileIo = StorageEntryBaseIo.extend({
 });
 
 /** One entry of `GET /storage/ls`. */
-export const StorageEntryIo = z.discriminatedUnion("kind", [StorageDirIo, StorageFileIo]);
+export const StorageEntryIo = z.discriminatedUnion("kind", [
+  StorageDirIo,
+  StorageFileIo,
+]);
 
 export const StorageEntriesIo = z.array(StorageEntryIo);
 

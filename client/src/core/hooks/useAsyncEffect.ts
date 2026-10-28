@@ -1,7 +1,10 @@
 import { useEffect } from "react";
+
 import { trackError } from "../errors/trackError";
 
-type AsyncEffectCallback = (signal: AbortSignal) => Promise<void> | (() => void) | void;
+type AsyncEffectCallback = (
+  signal: AbortSignal,
+) => Promise<void> | (() => void) | void;
 
 /**
  * `useEffect` for async work: the callback may be `async`, gets an `AbortSignal` that's
@@ -18,7 +21,10 @@ type AsyncEffectCallback = (signal: AbortSignal) => Promise<void> | (() => void)
  *   }
  * }, [id]);
  */
-export const useAsyncEffect = (fn: AsyncEffectCallback, deps?: unknown[]): void => {
+export const useAsyncEffect = (
+  fn: AsyncEffectCallback,
+  deps?: unknown[],
+): void => {
   useEffect(() => {
     const controller = new AbortController();
     const result = fn(controller.signal);

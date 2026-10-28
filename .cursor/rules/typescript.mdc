@@ -10,6 +10,8 @@ alwaysApply: false
 
 - Exports first, then private types, constants and helpers. The reader sees
   what the file is for on the first screen.
+- Exception: the props type of the file's main component goes right above
+  that component, even when the type isn't exported.
 - Always brace `if` / `for` / `while` bodies, including early returns.
 - Functions are verbs (`parseStorageUrl`); components are nouns.
 - API functions start with `get` / `fetch` / `create` / … (`getHealth`,
@@ -24,7 +26,8 @@ alwaysApply: false
 - Descriptive names; one-letter names only for loop counters and math.
 - Event handlers are `onX`, not `handleX`.
 - `{@link Foo}` in JSDoc, not rustdoc-style `` [`Foo`] ``.
-- Formatting is oxfmt's default (double quotes) — don't hand-format.
+- Formatting is oxfmt with `client/.oxfmtrc.json` (double quotes, 80
+  columns) — don't hand-format.
 
 ## API layer
 

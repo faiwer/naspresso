@@ -1,0 +1,4 @@
+/* With `width: 1` the column takes only what its content needs; the name column gets the rest. */
+.shrink {
+  white-space: nowrap;
+}

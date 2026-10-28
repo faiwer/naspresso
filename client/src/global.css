@@ -6,6 +6,10 @@
   --color-surface-bg: #fff;
   --color-border: #e0e0e0;
   --color-shadow: rgb(0 0 0 / 6%);
+  --color-hover-bg: rgb(0 0 0 / 4%);
+  --color-thumb-from: #e8e8e8;
+  --color-thumb-to: #c8c8c8;
+  --color-folder: #f0b429;
 }
 
 html,

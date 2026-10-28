@@ -64,7 +64,10 @@ export class DecodeError extends ApiError {
 
 const API_ROOT = "/api";
 
-const fetchOk = async (path: string, options: ApiRequestOptions): Promise<Response> => {
+const fetchOk = async (
+  path: string,
+  options: ApiRequestOptions,
+): Promise<Response> => {
   const url = API_ROOT + buildPath(path, options.query);
 
   let response: Response;
@@ -109,8 +112,14 @@ const readErrorBody = async (response: Response): Promise<HttpError> => {
   }
 
   const body =
-    raw && typeof raw === "object" ? (raw as { error?: string; message?: string }) : null;
-  return new HttpError(response.status, body?.message ?? null, body?.error ?? null);
+    raw && typeof raw === "object"
+      ? (raw as { error?: string; message?: string })
+      : null;
+  return new HttpError(
+    response.status,
+    body?.message ?? null,
+    body?.error ?? null,
+  );
 };
 
 const decodeJson = async <T extends z.ZodType>(
@@ -138,4 +147,6 @@ const decodeJson = async <T extends z.ZodType>(
 };
 
 const formatIssues = (issues: z.core.$ZodIssue[]): string =>
-  issues.map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`).join("; ");
+  issues
+    .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+    .join("; ");

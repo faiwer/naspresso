@@ -4,7 +4,11 @@ import { useAsyncData } from "../core/hooks/useAsyncData";
 
 export const HomePage = () => {
   const health = useAsyncData((signal) => getHealth({ signal }), []);
-  const status = health.isLoading ? "…" : health.error ? "unreachable" : health.data.status;
+  const status = health.isLoading
+    ? "…"
+    : health.error
+      ? "unreachable"
+      : health.data.status;
 
   return (
     <Frame>
