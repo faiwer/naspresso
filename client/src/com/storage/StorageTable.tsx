@@ -18,16 +18,6 @@ export const StorageTable = ({ segments, entries }: StorageViewProps) => {
     to: entry.kind === "dir" ? routes.storage([...segments, entry.name]) : null,
     href: entry.kind === "file" ? getEntryFileUrl(segments, entry.name) : null,
   }));
-  if (segments.length > 0) {
-    rows.unshift({
-      key: "..",
-      name: "..",
-      ext: "",
-      createdAt: null,
-      to: routes.storage(segments.slice(0, -1)),
-      href: null,
-    });
-  }
 
   return (
     <Table<Row>

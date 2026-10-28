@@ -7,11 +7,6 @@ import { routes } from "../../core/routes";
 
 export const StorageList = ({ segments, entries }: StorageViewProps) => (
   <ol>
-    {segments.length > 0 && (
-      <li>
-        <Link to={routes.storage(segments.slice(0, -1))}>..</Link>
-      </li>
-    )}
     {entries.map((entry) => (
       <li key={entry.name}>
         {entry.kind === "dir" ? (

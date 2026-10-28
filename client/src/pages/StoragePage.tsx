@@ -1,6 +1,6 @@
 import { Breadcrumb } from "antd";
 import { type ReactNode, useState } from "react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { getListStorage } from "../api/storage";
 import { Frame } from "../com/layout/Frame";
@@ -13,7 +13,7 @@ import {
 import { StorageTable } from "../com/storage/StorageTable";
 import { StorageThumbnails } from "../com/storage/StorageThumbnails";
 import { useAsyncData } from "../core/hooks/useAsyncData";
-import { parseStorageUrl } from "../core/routes";
+import { parseStorageUrl, routes } from "../core/routes";
 /**
  * Lists a directory of `STORAGE`. Mounted at `/storage/*`; the rest of the URL is the
  * directory path, built by `routes.storage`.
@@ -27,10 +27,14 @@ export const StoragePage = () => {
   );
   const [mode, setMode] = useState<StorageViewMode>("thumbnails");
   const View = VIEWS[mode];
-  const breadcrumbs = [
-    { title: "Storage" },
-    ...segments.map((segment) => ({ title: segment })),
-  ];
+  const breadcrumbs = ["Storage", ...segments].map((name, index) => ({
+    title:
+      index === segments.length ? (
+        name
+      ) : (
+        <Link to={routes.storage(segments.slice(0, index))}>{name}</Link>
+      ),
+  }));
 
   return (
     <Frame
