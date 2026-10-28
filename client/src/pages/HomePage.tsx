@@ -1,17 +1,9 @@
-import { useEffect, useState } from "react";
+import { getHealth } from "../api/health";
+import { useAsyncData } from "../core/hooks/useAsyncData";
 
 export const HomePage = () => {
-  const [status, setStatus] = useState<string | null>(null);
+  const health = useAsyncData((signal) => getHealth({ signal }), []);
+  const status = health.isLoading ? "…" : health.error ? "unreachable" : health.data.status;
 
-  useEffect(() => {
-    void fetchHealthStatus().then(setStatus);
-  }, []);
-
-  return <h1>Hello World, server is: {status ?? "…"}</h1>;
-};
-
-const fetchHealthStatus = async (): Promise<string> => {
-  const response = await fetch("/api/health");
-  const { status } = (await response.json()) as { status: string };
-  return status;
+  return <h1>Hello World, server is: {status}</h1>;
 };
