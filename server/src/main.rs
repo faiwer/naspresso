@@ -1,9 +1,15 @@
+use std::sync::Arc;
+
 use anyhow::Context;
 use config::Config;
+use state::AppState;
 use tokio::{net::TcpListener, signal};
 
 mod config;
+mod error;
 mod routes;
+mod state;
+mod storage;
 mod telemetry;
 
 #[tokio::main]
@@ -13,15 +19,18 @@ async fn main() -> anyhow::Result<()> {
 
     telemetry::init();
 
-    let Config { host, port } = &config;
-    let listener = TcpListener::bind((host.as_str(), *port))
+    let (host, port) = (config.host.as_str(), config.port);
+    let listener = TcpListener::bind((host, port))
         .await
         .with_context(|| format!("binding to {host}:{port}"))?;
 
     let local_addr = listener.local_addr().context("reading local addr")?;
-    tracing::info!(%local_addr, "server listening");
+    tracing::info!(%local_addr, storage = %config.storage.display(), "server listening");
 
-    axum::serve(listener, routes::router())
+    let state = AppState {
+        config: Arc::new(config),
+    };
+    axum::serve(listener, routes::router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("server error")?;

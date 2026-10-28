@@ -1,6 +1,6 @@
 # NASpresso
 
-- `server/` — Rust server on axum (`cargo run`, listens on `HOST`:`PORT`, both required, e.g. in `server/.env`)
+- `server/` — Rust server on axum (`cargo run`, listens on `HOST`:`PORT` and serves the `STORAGE` directory; all three are required, e.g. in `server/.env`)
 - `client/` — Vite + TypeScript (`npm run dev -w client`)
 
 ## Setup
