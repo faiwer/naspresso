@@ -1,7 +1,9 @@
 import { FolderOpenFilled } from "@ant-design/icons";
 import { Link } from "react-router";
 
+import { getFileUrl } from "../../api/storage";
 import type { StorageDir, StorageEntry } from "../../api/storage.io";
+import { joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
 import type { StorageViewProps } from "./StorageList";
 
@@ -10,20 +12,13 @@ import styles from "./StorageThumbnails.module.css";
 export const StorageThumbnails = ({ segments, entries }: StorageViewProps) => (
   <div className={styles.grid}>
     {segments.length > 0 && (
-      <Thumbnail
-        entry={PARENT_ENTRY}
-        to={routes.storage(segments.slice(0, -1))}
-      />
+      <Thumbnail entry={PARENT_ENTRY} segments={segments.slice(0, -1)} />
     )}
     {entries.map((entry) => (
       <Thumbnail
         key={entry.name}
         entry={entry}
-        to={
-          entry.kind === "dir"
-            ? routes.storage([...segments, entry.name])
-            : null
-        }
+        segments={[...segments, entry.name]}
       />
     ))}
   </div>
@@ -31,8 +26,8 @@ export const StorageThumbnails = ({ segments, entries }: StorageViewProps) => (
 
 type ThumbnailProps = {
   entry: StorageEntry;
-  /** Where clicking leads; `null` for files. */
-  to: string | null;
+  /** Where the tile points: the entry's own path, or the parent directory for `..`. */
+  segments: string[];
 };
 
 /** The `..` tile; it isn't a real entry, so its timestamps are dummies. */
@@ -43,7 +38,7 @@ const PARENT_ENTRY: StorageDir = {
   createdAt: null,
 };
 
-const Thumbnail = ({ entry, to }: ThumbnailProps) => {
+const Thumbnail = ({ entry, segments }: ThumbnailProps) => {
   const { name } = entry;
   const content = (
     <>
@@ -60,11 +55,21 @@ const Thumbnail = ({ entry, to }: ThumbnailProps) => {
     </>
   );
 
-  return to == null ? (
-    <div className={styles.item}>{content}</div>
-  ) : (
-    <Link className={styles.item} to={to}>
+  if (entry.kind === "dir") {
+    return (
+      <Link className={styles.item} to={routes.storage(segments)}>
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <a
+      className={styles.item}
+      href={getFileUrl(joinPath(segments))}
+      target="_blank"
+      rel="noreferrer"
+    >
       {content}
-    </Link>
+    </a>
   );
 };

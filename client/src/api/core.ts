@@ -15,6 +15,10 @@ export const apiGet = async <T extends z.ZodType>(
   return decodeJson(response, schema);
 };
 
+/** Absolute URL of an API endpoint, for places that load it themselves (`<a href>`, `<img src>`). */
+export const buildApiUrl = (path: string, query?: ApiQuery): string =>
+  API_ROOT + buildPath(path, query);
+
 /**
  * Query-string values. `undefined` is dropped. Keys are camelCase here and
  * snake_cased at the wire boundary, like response bodies.
@@ -68,7 +72,7 @@ const fetchOk = async (
   path: string,
   options: ApiRequestOptions,
 ): Promise<Response> => {
-  const url = API_ROOT + buildPath(path, options.query);
+  const url = buildApiUrl(path, options.query);
 
   let response: Response;
   try {

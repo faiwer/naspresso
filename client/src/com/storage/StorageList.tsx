@@ -1,6 +1,8 @@
 import { Link } from "react-router";
 
+import { getFileUrl } from "../../api/storage";
 import type { StorageEntry } from "../../api/storage.io";
+import { joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
 
 export const StorageList = ({ segments, entries }: StorageViewProps) => (
@@ -17,7 +19,13 @@ export const StorageList = ({ segments, entries }: StorageViewProps) => (
             {entry.name}
           </Link>
         ) : (
-          entry.name
+          <a
+            href={getFileUrl(joinPath([...segments, entry.name]))}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {entry.name}
+          </a>
         )}
       </li>
     ))}

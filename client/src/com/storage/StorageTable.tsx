@@ -1,6 +1,7 @@
 import { Table, type TableColumnsType } from "antd";
 import { Link } from "react-router";
 
+import { getEntryFileUrl } from "../../api/storage";
 import { formatDateTime } from "../../core/helpers/date";
 import { getExtension } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
@@ -15,6 +16,7 @@ export const StorageTable = ({ segments, entries }: StorageViewProps) => {
     ext: entry.kind === "file" ? getExtension(entry.name) : "",
     createdAt: entry.createdAt,
     to: entry.kind === "dir" ? routes.storage([...segments, entry.name]) : null,
+    href: entry.kind === "file" ? getEntryFileUrl(segments, entry.name) : null,
   }));
   if (segments.length > 0) {
     rows.unshift({
@@ -23,6 +25,7 @@ export const StorageTable = ({ segments, entries }: StorageViewProps) => {
       ext: "",
       createdAt: null,
       to: routes.storage(segments.slice(0, -1)),
+      href: null,
     });
   }
 
@@ -41,16 +44,29 @@ type Row = {
   name: string;
   ext: string;
   createdAt: number | null;
-  /** Where clicking the name leads; `null` for files. */
+  /** In-app route of a directory; `null` for files. */
   to: string | null;
+  /** URL of a file, opened in a new tab; `null` for directories. */
+  href: string | null;
 };
 
 const COLUMNS: TableColumnsType<Row> = [
   {
     title: "Name",
     dataIndex: "name",
-    render: (name: string, row) =>
-      row.to == null ? name : <Link to={row.to}>{name}</Link>,
+    render: (name: string, row) => {
+      if (row.to != null) {
+        return <Link to={row.to}>{name}</Link>;
+      }
+      if (row.href != null) {
+        return (
+          <a href={row.href} target="_blank" rel="noreferrer">
+            {name}
+          </a>
+        );
+      }
+      return name;
+    },
   },
   { title: "Ext", dataIndex: "ext", width: 1, className: styles.shrink },
   {
