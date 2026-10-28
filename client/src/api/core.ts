@@ -68,11 +68,18 @@ export class DecodeError extends ApiError {
 
 const API_ROOT = "/api";
 
+const DEV_DELAY_MAX_MS = 200;
+
 const fetchOk = async (
   path: string,
   options: ApiRequestOptions,
 ): Promise<Response> => {
   const url = buildApiUrl(path, options.query);
+  if (import.meta.env.DEV) {
+    // Local responses are instant; this surfaces loading states and races.
+    const delay = Math.random() * DEV_DELAY_MAX_MS;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
 
   let response: Response;
   try {

@@ -18,6 +18,15 @@
   background: var(--color-hover-bg);
 }
 
+.skeleton {
+  width: 8rem;
+  padding: 0.3rem;
+}
+
+.skeletonName {
+  margin-top: 0.25rem;
+}
+
 .preview {
   aspect-ratio: 1;
   border-radius: 0.25rem;

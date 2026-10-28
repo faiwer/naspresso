@@ -1,18 +1,16 @@
 import { Breadcrumb } from "antd";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router";
 
-import { getListStorage } from "../api/storage";
 import { Frame } from "../com/layout/Frame";
 import { Gap } from "../com/layout/Gap";
-import { StorageList, type StorageViewProps } from "../com/storage/StorageList";
+import { StorageListing } from "../com/storage/StorageListing";
 import {
   StorageModeSwitch,
   type StorageViewMode,
 } from "../com/storage/StorageModeSwitch";
-import { StorageTable } from "../com/storage/StorageTable";
-import { StorageThumbnails } from "../com/storage/StorageThumbnails";
-import { useAsyncData } from "../core/hooks/useAsyncData";
+import { joinPath } from "../core/helpers/path";
+import { useAsyncEffect } from "../core/hooks/useAsyncEffect";
 import { parseStorageUrl, routes } from "../core/routes";
 /**
  * Lists a directory of `STORAGE`. Mounted at `/storage/*`; the rest of the URL is the
@@ -20,13 +18,11 @@ import { parseStorageUrl, routes } from "../core/routes";
  */
 export const StoragePage = () => {
   const segments = parseStorageUrl(useLocation().pathname);
-  const path = "/" + segments.join("/");
-  const listing = useAsyncData(
-    (signal) => getListStorage(path, { signal }),
-    [path],
-  );
+  const path = joinPath(segments);
   const [mode, setMode] = useState<StorageViewMode>("thumbnails");
-  const View = VIEWS[mode];
+  const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(
+    null,
+  );
   const breadcrumbs = ["Storage", ...segments].map((name, index) => ({
     title:
       index === segments.length ? (
@@ -36,8 +32,14 @@ export const StoragePage = () => {
       ),
   }));
 
+  // The container outlives directories, so it would keep the previous one's offset.
+  useAsyncEffect(() => {
+    scrollContainer?.scrollTo({ top: 0 });
+  }, [path, mode]);
+
   return (
     <Frame
+      scrollContainerRef={setScrollContainer}
       header={
         <>
           <Breadcrumb items={breadcrumbs} />
@@ -46,19 +48,14 @@ export const StoragePage = () => {
         </>
       }
     >
-      {listing.isLoading ? (
-        <p>…</p>
-      ) : listing.error ? (
-        <p>{listing.error.message}</p>
-      ) : (
-        <View segments={segments} entries={listing.data} />
+      {scrollContainer && (
+        <StorageListing
+          key={path}
+          segments={segments}
+          mode={mode}
+          scrollContainer={scrollContainer}
+        />
       )}
     </Frame>
   );
-};
-
-const VIEWS: Record<StorageViewMode, (props: StorageViewProps) => ReactNode> = {
-  list: StorageList,
-  table: StorageTable,
-  thumbnails: StorageThumbnails,
 };

@@ -24,8 +24,16 @@ export const StorageEntryIo = z.discriminatedUnion("kind", [
   StorageFileIo,
 ]);
 
-export const StorageEntriesIo = z.array(StorageEntryIo);
+/** A page of `GET /storage/ls`. */
+export const StorageListPageIo = z.object({
+  items: z.array(StorageEntryIo),
+  /** Pass back as `cursor` for the next page; `null` on the last one. */
+  nextCursor: z.string().nullable(),
+  /** Entries in the whole directory, across all pages. */
+  total: z.number(),
+});
 
 export type StorageDir = z.infer<typeof StorageDirIo>;
 export type StorageFile = z.infer<typeof StorageFileIo>;
 export type StorageEntry = z.infer<typeof StorageEntryIo>;
+export type StorageListPage = z.infer<typeof StorageListPageIo>;

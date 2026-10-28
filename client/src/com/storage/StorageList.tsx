@@ -1,11 +1,16 @@
+import { Skeleton } from "antd";
 import { Link } from "react-router";
 
-import { getFileUrl } from "../../api/storage";
+import { getEntryFileUrl } from "../../api/storage";
 import type { StorageEntry } from "../../api/storage.io";
-import { joinPath } from "../../core/helpers/path";
+import { range } from "../../core/helpers/array";
 import { routes } from "../../core/routes";
 
-export const StorageList = ({ segments, entries }: StorageViewProps) => (
+export const StorageList = ({
+  segments,
+  entries,
+  skeletons,
+}: StorageViewProps) => (
   <ol>
     {entries.map((entry) => (
       <li key={entry.name}>
@@ -15,13 +20,18 @@ export const StorageList = ({ segments, entries }: StorageViewProps) => (
           </Link>
         ) : (
           <a
-            href={getFileUrl(joinPath([...segments, entry.name]))}
+            href={getEntryFileUrl(segments, entry.name)}
             target="_blank"
             rel="noreferrer"
           >
             {entry.name}
           </a>
         )}
+      </li>
+    ))}
+    {range(skeletons).map((index) => (
+      <li key={`skeleton-${index}`}>
+        <Skeleton.Input active size="small" />
       </li>
     ))}
   </ol>
@@ -32,4 +42,6 @@ export type StorageViewProps = {
   /** The listed directory as path segments; empty for the root. */
   segments: string[];
   entries: StorageEntry[];
+  /** Placeholders to show after `entries` while more of them load. */
+  skeletons: number;
 };
