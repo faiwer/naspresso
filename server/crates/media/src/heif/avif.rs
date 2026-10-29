@@ -21,8 +21,8 @@ const ALTERNATIVES_GROUP_ID: u32 = 4;
 
 /// CICP codes for `colr` boxes: primaries, transfer, matrix.
 type Cicp = (u16, u16, u16);
-/// sRGB, BT.601 matrix: what `av1::encode` codes in the bitstream.
-const SRGB: Cicp = (1, 13, 6);
+/// BT.601: what `av1::encode` codes.
+const SDR_MATRIX: u16 = 6;
 /// The ICC profile has the primaries and transfer; only the matrix is here.
 const MATRIX_ONLY: Cicp = (2, 2, 6);
 /// BT.2100 PQ, BT.2020 matrix: what `av1::encode_pq` codes in the bitstream.
@@ -30,7 +30,22 @@ const BT2100_PQ: Cicp = (9, 16, 9);
 /// Major brand, minor version 0, compatible brands.
 const BRANDS: &[u8] = b"avif\0\0\0\0avifmif1miafMA1A";
 /// The `auxC` type of an alpha item.
-const ALPHA_URN: &[u8] = b"urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0";
+pub const ALPHA_URN: &[u8] = b"urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0";
+
+/// The color space of a gain-map file's base image, which the HDR rendition
+/// shares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaseColor {
+    Icc(Vec<u8>),
+    Cicp { primaries: u16, transfer: u16 },
+}
+
+impl BaseColor {
+    pub const SRGB: Self = Self::Cicp {
+        primaries: 1,
+        transfer: 13,
+    };
+}
 
 /// `image`, coded by `av1::encode_pq`, as an AVIF, with `alpha`, coded by
 /// `av1::encode_alpha`, as its alpha channel if there is one.
@@ -85,13 +100,12 @@ pub fn write_pq(image: &Av1Image, alpha: Option<&Av1Image>) -> Vec<u8> {
     [ftyp, meta(data_start), plain_box(b"mdat", &data)].concat()
 }
 
-/// `base` and `gain_map` as one AVIF. `icc` is the base image's color profile,
-/// which the HDR rendition shares; sRGB without one.
+/// `base` and `gain_map` as one AVIF, `base` being in `color`.
 pub fn write(
     base: &Av1Image,
     gain_map: &Av1Image,
     metadata: &GainMapMetadata,
-    icc: Option<&[u8]>,
+    color: &BaseColor,
 ) -> Vec<u8> {
     let tone_map = [&[0][..], &metadata.to_iso()].concat();
     let ftyp = plain_box(b"ftyp", &[BRANDS, b"tmap"].concat());
@@ -99,7 +113,7 @@ pub fn write(
         base,
         gain_map,
         tone_map: &tone_map,
-        icc,
+        color,
     };
     // Item offsets are absolute, and the meta box's size doesn't depend on them.
     let meta_len = file.meta(0).len();
@@ -117,7 +131,7 @@ struct File<'a> {
     gain_map: &'a Av1Image,
     /// The `tmap` item's payload.
     tone_map: &'a [u8],
-    icc: Option<&'a [u8]>,
+    color: &'a BaseColor,
 }
 
 impl File<'_> {
@@ -165,12 +179,15 @@ impl File<'_> {
 
     fn iprp(&self) -> Vec<u8> {
         let mut properties = Properties::default();
-        let colors = |properties: &mut Properties| match self.icc {
-            Some(icc) => vec![
-                properties.add(plain_box(b"colr", &[b"prof", icc].concat()), false),
+        let colors = |properties: &mut Properties| match self.color {
+            BaseColor::Icc(icc) => vec![
+                properties.add(plain_box(b"colr", &[&b"prof"[..], icc].concat()), false),
                 properties.add(nclx(MATRIX_ONLY), false),
             ],
-            None => vec![properties.add(nclx(SRGB), false)],
+            &BaseColor::Cicp {
+                primaries,
+                transfer,
+            } => vec![properties.add(nclx((primaries, transfer, SDR_MATRIX)), false)],
         };
 
         let mut base = vec![
@@ -360,7 +377,12 @@ mod tests {
     #[test]
     fn writes_a_tone_mapped_file() {
         let (base, gain_map) = (image(b"BASE-OBUS", false), image(b"MAP", true));
-        let file = write(&base, &gain_map, &metadata(), Some(b"ICC"));
+        let file = write(
+            &base,
+            &gain_map,
+            &metadata(),
+            &BaseColor::Icc(b"ICC".to_vec()),
+        );
 
         let kinds: Vec<_> = boxes(&file).into_iter().map(|(kind, _)| kind).collect();
         assert_eq!(kinds, [&b"ftyp"[..], b"meta", b"mdat"]);
@@ -372,6 +394,18 @@ mod tests {
 
         let altr = find(&file, &[b"meta", b"grpl", b"altr"]);
         assert_eq!(altr[8..], [0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn writes_cicp_base_colors() {
+        let color = BaseColor::Cicp {
+            primaries: 9,
+            transfer: 1,
+        };
+        let file = write(&image(b"B", false), &image(b"M", true), &metadata(), &color);
+        let ipco = find(&file, &[b"meta", b"iprp", b"ipco"]);
+        assert!(contains(ipco, &nclx((9, 1, SDR_MATRIX))));
+        assert!(!contains(ipco, b"prof"));
     }
 
     #[test]
@@ -420,9 +454,9 @@ mod tests {
     #[test]
     fn shares_identical_properties() {
         let mut properties = Properties::default();
-        assert_eq!(properties.add(nclx(SRGB), false), 1);
+        assert_eq!(properties.add(nclx(BT2100_PQ), false), 1);
         assert_eq!(properties.add(nclx(MATRIX_ONLY), true), 0x82);
-        assert_eq!(properties.add(nclx(SRGB), false), 1);
+        assert_eq!(properties.add(nclx(BT2100_PQ), false), 1);
         assert_eq!(properties.boxes.len(), 2);
     }
 }

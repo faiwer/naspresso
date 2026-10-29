@@ -12,6 +12,7 @@ mod jxl;
 mod metadata;
 mod mime;
 mod png;
+mod pq;
 pub mod preview;
 mod probe;
 #[cfg(test)]

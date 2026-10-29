@@ -37,6 +37,12 @@ impl From<jxl::decode::DecodeError> for PreviewError {
     }
 }
 
+impl From<av1::decode::DecodeError> for PreviewError {
+    fn from(e: av1::decode::DecodeError) -> Self {
+        Self::Decode(e.to_string())
+    }
+}
+
 impl From<av1::EncodeError> for PreviewError {
     fn from(e: av1::EncodeError) -> Self {
         Self::Encode(e.to_string())

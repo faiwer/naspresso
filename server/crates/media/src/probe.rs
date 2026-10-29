@@ -109,6 +109,7 @@ fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageM
         "image/png" => png::probe::read(reader),
         "image/avif" | "image/heif" => heif::probe::read(reader),
         "image/jxl" => jxl::probe::read(reader),
+        // GIF, WebP, BMP and TIFF: size, orientation and animation; HDR isn't detected
         _ => {
             let size = read_size(reader)?;
             reader.rewind()?;

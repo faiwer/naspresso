@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+dav1d = "0.11.1"
 fast_image_resize = "6.1.0"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
 imagesize = { version = "0.15.0", default-features = false, features = ["bmp", "gif", "jxl", "tiff", "webp"] }
@@ -19,3 +20,4 @@ serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 tracing = "0.1.44"
 turbojpeg = { version = "1.5.1", default-features = false, features = ["cmake", "require-simd"] }
+yuvutils-rs = "0.8.3"

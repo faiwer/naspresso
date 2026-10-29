@@ -14,7 +14,7 @@ use crate::{
 /// us read much.
 const MAX_META_LEN: u64 = 1 << 20;
 
-type BoxType = [u8; 4];
+pub(super) type BoxType = [u8; 4];
 
 /// Expects the reader at the start of the file.
 pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetadata> {
@@ -129,19 +129,20 @@ fn parse_meta(meta: &[u8]) -> Option<ImageMetadata> {
     } else {
         (width, height)
     };
-    let hdr = if gain_map {
-        Hdr::GainMap
-    } else {
-        primary_properties
-            .iter()
-            .find_map(|(kind, body)| {
-                if kind == b"colr" {
-                    nclx_transfer(body)
-                } else {
-                    None
-                }
-            })
-            .map_or(Hdr::None, hdr_from_transfer)
+    let hdr = primary_properties
+        .iter()
+        .find_map(|(kind, body)| {
+            if kind == b"colr" {
+                nclx_transfer(body)
+            } else {
+                None
+            }
+        })
+        .map_or(Hdr::None, hdr_from_transfer);
+    // An HDR base image's gain map is only for SDR displays.
+    let hdr = match hdr {
+        Hdr::None if gain_map => Hdr::GainMap,
+        hdr => hdr,
     };
 
     Some(ImageMetadata {
@@ -153,7 +154,7 @@ fn parse_meta(meta: &[u8]) -> Option<ImageMetadata> {
 }
 
 /// The `(type, body)` of each box in `data`, up to the first malformed one.
-fn boxes(mut data: &[u8]) -> impl Iterator<Item = (BoxType, &[u8])> {
+pub(super) fn boxes(mut data: &[u8]) -> impl Iterator<Item = (BoxType, &[u8])> {
     std::iter::from_fn(move || {
         let size = be_u32(data, 0)?;
         let kind = data.get(4..8)?.try_into().ok()?;
@@ -169,7 +170,7 @@ fn boxes(mut data: &[u8]) -> impl Iterator<Item = (BoxType, &[u8])> {
 }
 
 /// The primary item's ID.
-fn parse_pitm(body: &[u8]) -> Option<u32> {
+pub(super) fn parse_pitm(body: &[u8]) -> Option<u32> {
     match body.first()? {
         0 => be_u16(body, 4).map(u32::from),
         _ => be_u32(body, 4),
@@ -200,7 +201,7 @@ fn item_type(infe: &[u8]) -> Option<BoxType> {
 }
 
 /// Each item's ID and its 1-based property indices.
-fn parse_ipma(body: &[u8]) -> Option<Vec<(u32, Vec<u16>)>> {
+pub(super) fn parse_ipma(body: &[u8]) -> Option<Vec<(u32, Vec<u16>)>> {
     let version = *body.first()?;
     let wide_indices = body.get(3)? & 1 == 1;
     let count = be_u32(body, 4)?;
@@ -247,15 +248,15 @@ fn nclx_transfer(colr: &[u8]) -> Option<u16> {
     be_u16(colr, 6)
 }
 
-fn be_u16(data: &[u8], at: usize) -> Option<u16> {
+pub(super) fn be_u16(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes(data.get(at..at + 2)?.try_into().ok()?))
 }
 
-fn be_u32(data: &[u8], at: usize) -> Option<u32> {
+pub(super) fn be_u32(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
 }
 
-fn be_u64(data: &[u8], at: usize) -> Option<u64> {
+pub(super) fn be_u64(data: &[u8], at: usize) -> Option<u64> {
     Some(u64::from_be_bytes(data.get(at..at + 8)?.try_into().ok()?))
 }
 
@@ -405,6 +406,13 @@ mod tests {
         let mut fixture = Fixture::avif(vec![ispe(8, 8), nclx(13)]);
         fixture.items.push(infe(2, b"tmap"));
         assert_eq!(probe(fixture).hdr, Hdr::GainMap);
+    }
+
+    #[test]
+    fn a_pq_base_image_outranks_its_gain_map() {
+        let mut fixture = Fixture::avif(vec![ispe(8, 8), nclx(16)]);
+        fixture.items.push(infe(2, b"tmap"));
+        assert_eq!(probe(fixture).hdr, Hdr::Pq);
     }
 
     #[test]

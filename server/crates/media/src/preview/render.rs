@@ -17,7 +17,10 @@ use super::{
 use crate::{
     av1,
     gain_map::GainMapMetadata,
-    heif::avif,
+    heif::{
+        avif::{self, BaseColor},
+        decode::{decode as decode_avif, decode_gain_mapped as decode_gain_mapped_avif},
+    },
     jpeg::{
         self,
         decode::{Jpeg, decode as decode_jpeg},
@@ -28,6 +31,7 @@ use crate::{
         gain_map::decode_gain_mapped,
     },
     metadata::Hdr,
+    pq,
     probe::probe_file,
 };
 
@@ -71,6 +75,9 @@ pub fn render(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewE
     let hdr = probe.image.map(|image| image.hdr);
     if probe.mime == "image/jxl" {
         return make_previews_from_jxl(&fs::read(path)?, hdr, quality, speed);
+    }
+    if probe.mime == "image/avif" {
+        return make_previews_from_avif(&fs::read(path)?, hdr, quality, speed);
     }
     if !DECODABLE.contains(&probe.mime) {
         return Err(PreviewError::UnsupportedFormat(probe.mime));
@@ -193,12 +200,47 @@ fn make_previews_from_jxl(
             let decoded = decode_gain_mapped(file)?;
             let scaled = scale_gain_mapped(
                 decoded.metadata,
-                Some(decoded.icc),
+                BaseColor::Icc(decoded.icc),
                 decoded.base,
                 decoded.gain_map,
             )?;
             encode_gain_mapped_avifs(&scaled, quality, speed)
         }
+    }
+}
+
+/// Previews of an AVIF `file`: PQ for a PQ image, gain-map AVIFs for an SDR
+/// image with a gain map, SDR for the rest.
+fn make_previews_from_avif(
+    file: &[u8],
+    hdr: Option<Hdr>,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    match hdr {
+        Some(Hdr::Pq) => {
+            let mut decoded = decode_avif(file, true)?;
+            match decoded.color {
+                BaseColor::Cicp {
+                    primaries,
+                    transfer: 16,
+                } if pq::to_bt2020(&mut decoded.image, primaries) => {}
+                _ => return Err(PreviewError::HdrUnsupported),
+            }
+            encode_pq_avifs(decoded.image, quality, speed)
+        }
+        Some(Hdr::GainMap) => {
+            let decoded = decode_gain_mapped_avif(file)?;
+            let scaled = scale_gain_mapped(
+                decoded.metadata,
+                decoded.color,
+                decoded.base,
+                decoded.gain_map,
+            )?;
+            encode_gain_mapped_avifs(&scaled, quality, speed)
+        }
+        Some(Hdr::None) | None => encode_sdr_avifs(decode_avif(file, false)?.image, quality, speed),
+        Some(Hdr::Hlg | Hdr::Unknown) => Err(PreviewError::HdrUnsupported),
     }
 }
 
@@ -249,7 +291,7 @@ fn encode_gain_mapped_avifs(
     let avifs = encoded
         .iter()
         .map(|(size, base, gain_map)| {
-            let avif = avif::write(base, gain_map, &scaled.metadata, scaled.icc.as_deref());
+            let avif = avif::write(base, gain_map, &scaled.metadata, &scaled.color);
             (*size, avif)
         })
         .collect();
@@ -266,8 +308,8 @@ fn join<T>(handle: ScopedJoinHandle<'_, T>) -> T {
 /// A base image and its gain map, upright, at each size.
 struct GainMapped {
     metadata: GainMapMetadata,
-    /// The base image's color profile.
-    icc: Option<Vec<u8>>,
+    /// The base image's color space.
+    color: BaseColor,
     /// Largest first: the size, the base image (RGB), the gain map (RGB or
     /// grayscale).
     sizes: Vec<(PreviewSize, Image<'static>, Image<'static>)>,
@@ -307,14 +349,15 @@ fn scale_gain_mapped_jpeg(file: &[u8]) -> Result<GainMapped, PreviewError> {
     } else {
         rgb(map)
     }?;
-    scale_gain_mapped(gain_map.metadata, icc, rgb(base)?, map)
+    let color = icc.map_or(BaseColor::SRGB, BaseColor::Icc);
+    scale_gain_mapped(gain_map.metadata, color, rgb(base)?, map)
 }
 
 /// `base` and its gain map `map` scaled to every size, the gain map keeping
 /// its proportion to the base image.
 fn scale_gain_mapped(
     metadata: GainMapMetadata,
-    icc: Option<Vec<u8>>,
+    color: BaseColor,
     mut base: Image<'static>,
     mut map: Image<'static>,
 ) -> Result<GainMapped, PreviewError> {
@@ -335,7 +378,7 @@ fn scale_gain_mapped(
     }
     Ok(GainMapped {
         metadata,
-        icc,
+        color,
         sizes,
     })
 }
