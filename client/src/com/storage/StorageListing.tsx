@@ -1,7 +1,7 @@
-import { Button } from "antd";
 import type { ReactNode } from "react";
 
 import { joinPath } from "../../core/helpers/path";
+import { ErrorToast } from "../feedback/ErrorToast";
 import { ScrollSentinel } from "../layout/ScrollSentinel";
 import { StorageList, type StorageViewProps } from "./StorageList";
 import type { StorageViewMode } from "./StorageModeSwitch";
@@ -37,14 +37,7 @@ export const StorageListing = ({
   return (
     <>
       <View segments={segments} entries={feed.items} skeletons={skeletons} />
-      {feed.error && (
-        <p>
-          {feed.error.message}{" "}
-          <Button size="small" onClick={feed.retry}>
-            Retry
-          </Button>
-        </p>
-      )}
+      {feed.error && <ErrorToast error={feed.error} onRetry={feed.retry} />}
       {/* Unmounted while a page loads, so each page gets a fresh observer. */}
       {feed.canLoadMore && (
         <ScrollSentinel root={scrollContainer} onReached={feed.loadMore} />

@@ -1,0 +1,18 @@
+.image {
+  display: block;
+  width: 6rem;
+  height: 6rem;
+}
+
+.title {
+  margin: 0;
+  font: inherit;
+}
+
+.message {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.message:last-child {
+  margin-bottom: 0;
+}
