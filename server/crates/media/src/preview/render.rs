@@ -23,7 +23,10 @@ use crate::{
         decode::{Jpeg, decode as decode_jpeg},
         mpf::find_gain_map,
     },
-    jxl::decode::{Output, decode as decode_jxl, unpack_jpeg},
+    jxl::{
+        decode::{Output, decode as decode_jxl, unpack_jpeg},
+        gain_map::decode_gain_mapped,
+    },
     metadata::Hdr,
     probe::probe_file,
 };
@@ -173,8 +176,9 @@ fn scale(mut image: Image<'static>) -> Result<Vec<(PreviewSize, Image<'static>)>
     Ok(sizes)
 }
 
-/// Previews of a JPEG XL `file`: PQ for PQ and HLG images, those of the JPEG
-/// for a packed JPEG, SDR for the rest.
+/// Previews of a JPEG XL `file`: PQ for PQ and HLG images, gain-map AVIFs for
+/// an SDR image with a gain map, those of the JPEG for a packed JPEG, SDR for
+/// the rest.
 fn make_previews_from_jxl(
     file: &[u8],
     hdr: Option<Hdr>,
@@ -185,7 +189,16 @@ fn make_previews_from_jxl(
         Some(Hdr::Unknown) => make_previews_from_jpeg(&unpack_jpeg(file)?, quality, speed),
         Some(Hdr::Pq | Hdr::Hlg) => encode_pq_avifs(decode_jxl(file, Output::Pq)?, quality, speed),
         Some(Hdr::None) | None => encode_sdr_avifs(decode_jxl(file, Output::Srgb)?, quality, speed),
-        Some(Hdr::GainMap) => Err(PreviewError::HdrUnsupported),
+        Some(Hdr::GainMap) => {
+            let decoded = decode_gain_mapped(file)?;
+            let scaled = scale_gain_mapped(
+                decoded.metadata,
+                Some(decoded.icc),
+                decoded.base,
+                decoded.gain_map,
+            )?;
+            encode_gain_mapped_avifs(&scaled, quality, speed)
+        }
     }
 }
 
@@ -208,7 +221,15 @@ fn make_previews_from_gain_mapped_jpeg(
     quality: f32,
     speed: u8,
 ) -> Result<Rendered, PreviewError> {
-    let scaled = scale_gain_mapped_jpeg(file)?;
+    encode_gain_mapped_avifs(&scale_gain_mapped_jpeg(file)?, quality, speed)
+}
+
+/// Gain-map AVIFs, one per size.
+fn encode_gain_mapped_avifs(
+    scaled: &GainMapped,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
     // Each small encode keeps only a core or two busy, so all six run at once.
     let encoded = thread::scope(|scope| {
         let encodes: Vec<_> = scaled
@@ -242,7 +263,7 @@ fn join<T>(handle: ScopedJoinHandle<'_, T>) -> T {
         .unwrap_or_else(|panic| panic::resume_unwind(panic))
 }
 
-/// A gain-map JPEG's base image and gain map, upright, at each size.
+/// A base image and its gain map, upright, at each size.
 struct GainMapped {
     metadata: GainMapMetadata,
     /// The base image's color profile.
@@ -280,19 +301,25 @@ fn scale_gain_mapped_jpeg(file: &[u8]) -> Result<GainMapped, PreviewError> {
     // The gain map carries no orientation of its own; it follows the base's.
     map.apply_orientation(orientation);
 
-    let (base_width, base_height) = image_size(&base);
-    let (map_width, map_height) = image_size(&map);
-    let mut base = rgb(base)?;
-    let mut map = if map.color().channel_count() == 1 {
-        pixels(
-            map.into_luma8().into_raw(),
-            (map_width, map_height),
-            PixelType::U8,
-        )
+    let map = if map.color().channel_count() == 1 {
+        let size = image_size(&map);
+        pixels(map.into_luma8().into_raw(), size, PixelType::U8)
     } else {
         rgb(map)
     }?;
+    scale_gain_mapped(gain_map.metadata, icc, rgb(base)?, map)
+}
 
+/// `base` and its gain map `map` scaled to every size, the gain map keeping
+/// its proportion to the base image.
+fn scale_gain_mapped(
+    metadata: GainMapMetadata,
+    icc: Option<Vec<u8>>,
+    mut base: Image<'static>,
+    mut map: Image<'static>,
+) -> Result<GainMapped, PreviewError> {
+    let (base_width, base_height) = (base.width(), base.height());
+    let (map_width, map_height) = (map.width(), map.height());
     let mut resizer = Resizer::new();
     let mut sizes = Vec::with_capacity(PreviewSize::DESCENDING.len());
     for size in PreviewSize::DESCENDING {
@@ -307,7 +334,7 @@ fn scale_gain_mapped_jpeg(file: &[u8]) -> Result<GainMapped, PreviewError> {
         sizes.push((size, base.copy(), map.copy()));
     }
     Ok(GainMapped {
-        metadata: gain_map.metadata,
+        metadata,
         icc,
         sizes,
     })

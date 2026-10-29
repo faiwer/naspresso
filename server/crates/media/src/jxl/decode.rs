@@ -6,6 +6,12 @@ use thiserror::Error;
 #[error("{0}")]
 pub struct DecodeError(String);
 
+impl DecodeError {
+    pub fn new(message: &str) -> Self {
+        Self(message.into())
+    }
+}
+
 impl From<Box<dyn std::error::Error + Send + Sync>> for DecodeError {
     fn from(e: Box<dyn std::error::Error + Send + Sync>) -> Self {
         Self(e.to_string())
@@ -29,21 +35,32 @@ pub fn decode(file: &[u8], output: Output) -> Result<Image<'static>, DecodeError
         Output::Srgb => EnumColourEncoding::srgb(RenderingIntent::Relative),
         Output::Pq => EnumColourEncoding::bt2100_pq(RenderingIntent::Relative),
     });
+    render_first_frame(&image, output == Output::Pq)
+}
+
+/// Like [`decode`] into 8 bits, but in the color space the image is stored
+/// in, which the returned ICC profile describes.
+pub fn decode_native(file: &[u8]) -> Result<(Image<'static>, Vec<u8>), DecodeError> {
+    let image = JxlImage::builder().read(file)?;
+    Ok((render_first_frame(&image, false)?, image.rendered_icc()))
+}
+
+/// The first frame as 8-bit or, if `wide`, 16-bit RGB.
+fn render_first_frame(image: &JxlImage, wide: bool) -> Result<Image<'static>, DecodeError> {
     if image.num_loaded_keyframes() == 0 {
-        return Err(DecodeError("JPEG XL without a frame".into()));
+        return Err(DecodeError::new("JPEG XL without a frame"));
     }
     let render = image.render_frame(0)?;
     let stream = render.stream();
     let (width, height) = (stream.width(), stream.height());
-    let (bytes, pixel_type) = match output {
-        Output::Srgb => rgb::<u8>(stream, [PixelType::U8x3, PixelType::U8x4])?,
-        Output::Pq => {
-            let (samples, pixel_type) = rgb::<u16>(stream, [PixelType::U16x3, PixelType::U16x4])?;
-            (
-                samples.iter().flat_map(|v| v.to_ne_bytes()).collect(),
-                pixel_type,
-            )
-        }
+    let (bytes, pixel_type) = if wide {
+        let (samples, pixel_type) = rgb::<u16>(stream, [PixelType::U16x3, PixelType::U16x4])?;
+        (
+            samples.iter().flat_map(|v| v.to_ne_bytes()).collect(),
+            pixel_type,
+        )
+    } else {
+        rgb::<u8>(stream, [PixelType::U8x3, PixelType::U8x4])?
     };
     Image::from_vec_u8(width, height, bytes, pixel_type).map_err(|e| DecodeError(e.to_string()))
 }

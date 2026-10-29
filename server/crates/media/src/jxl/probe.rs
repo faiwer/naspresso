@@ -1,6 +1,7 @@
 //! JPEG XL: size, orientation and transfer function from the image header, which comes
-//! before the image data along with the embedded ICC profile, if any. A packed
-//! JPEG's gain map is out of reach, so those report [`Hdr::Unknown`].
+//! before the image data along with the embedded ICC profile, if any; a gain
+//! map from its box. A packed JPEG's gain map is out of reach, so those report
+//! [`Hdr::Unknown`].
 
 use std::io::{self, BufRead, BufReader, Read, Seek};
 
@@ -26,14 +27,14 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
         header.metadata.orientation,
     );
     reader.rewind()?;
-    let hdr = if packs_jpeg(reader)? {
-        Hdr::Unknown
-    } else {
-        match image.hdr_type() {
-            Some(HdrType::Pq) => Hdr::Pq,
-            Some(HdrType::Hlg) => Hdr::Hlg,
-            None => Hdr::None,
-        }
+    let boxes = find_boxes(reader)?;
+    let hdr = match image.hdr_type() {
+        _ if boxes.packed_jpeg => Hdr::Unknown,
+        Some(HdrType::Pq) => Hdr::Pq,
+        Some(HdrType::Hlg) => Hdr::Hlg,
+        // An HDR base image's gain map is only for SDR displays.
+        None if boxes.gain_map => Hdr::GainMap,
+        None => Hdr::None,
     };
     Ok(ImageMetadata { width, height, hdr })
 }
@@ -66,25 +67,36 @@ fn read_header(reader: &mut impl BufRead) -> io::Result<JxlImage> {
     }
 }
 
-/// Whether the file has a `jbrd` box, the data to rebuild a packed JPEG.
+/// Boxes that change what a file holds.
+#[derive(Default)]
+struct Boxes {
+    /// `jbrd`: the data to rebuild a packed JPEG.
+    packed_jpeg: bool,
+    /// `jhgm`.
+    gain_map: bool,
+}
+
 /// Reads box headers only, skipping their bodies.
-fn packs_jpeg<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<bool> {
+fn find_boxes<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<Boxes> {
+    let mut found = Boxes::default();
     if read_array(reader)? != CONTAINER_SIGNATURE {
-        return Ok(false);
+        return Ok(found);
     }
     loop {
         let len = match read_u32(reader) {
             Ok(len) => u64::from(len),
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(false),
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(found),
             Err(e) => return Err(e),
         };
         let kind: [u8; 4] = read_array(reader)?;
-        if kind == *b"jbrd" {
-            return Ok(true);
+        match &kind {
+            b"jbrd" => found.packed_jpeg = true,
+            b"jhgm" => found.gain_map = true,
+            _ => {}
         }
         let (len, header_len) = match len {
             // The last box, to the end of the file.
-            0 => return Ok(false),
+            0 => return Ok(found),
             1 => (read_u64(reader)?, 16),
             len => (len, 8),
         };
@@ -109,31 +121,36 @@ mod tests {
         [&CONTAINER_SIGNATURE[..], &boxes.concat()].concat()
     }
 
+    fn boxes(file: Vec<u8>) -> (Boxes, usize) {
+        let (mut reader, read) = page_reader(file);
+        (find_boxes(&mut reader).unwrap(), read.get())
+    }
+
     #[test]
-    fn finds_a_packed_jpeg_past_big_boxes() {
-        let file = container(&[
+    fn finds_boxes_past_big_ones() {
+        let (found, read) = boxes(container(&[
             jxl_box(b"ftyp", b"jxl \0\0\0\0jxl "),
             jxl_box(b"jxlp", &vec![0; 100_000]),
+            jxl_box(b"jhgm", &vec![0; 100_000]),
+            jxl_box(b"jxlp", &vec![0; 100_000]),
             jxl_box(b"jbrd", &[0; 10]),
-        ]);
-        let (mut reader, read) = page_reader(file);
-        assert!(packs_jpeg(&mut reader).unwrap());
-        assert!(read.get() < 10_000);
+        ]));
+        assert!(found.packed_jpeg && found.gain_map);
+        assert!(read < 20_000, "read {read} bytes");
     }
 
     #[test]
-    fn finds_no_packed_jpeg() {
-        let file = container(&[
+    fn finds_neither() {
+        let (found, _) = boxes(container(&[
             jxl_box(b"ftyp", b"jxl \0\0\0\0jxl "),
             jxl_box(b"jxlc", &[0; 100]),
-        ]);
-        let (mut reader, _) = page_reader(file);
-        assert!(!packs_jpeg(&mut reader).unwrap());
+        ]));
+        assert!(!found.packed_jpeg && !found.gain_map);
     }
 
     #[test]
-    fn a_bare_codestream_packs_nothing() {
-        let (mut reader, _) = page_reader(b"\xff\x0a\0\0\0\0\0\0\0\0\0\0\0\0".to_vec());
-        assert!(!packs_jpeg(&mut reader).unwrap());
+    fn a_bare_codestream_has_no_boxes() {
+        let (found, _) = boxes(b"\xff\x0a\0\0\0\0\0\0\0\0\0\0\0\0".to_vec());
+        assert!(!found.packed_jpeg && !found.gain_map);
     }
 }
