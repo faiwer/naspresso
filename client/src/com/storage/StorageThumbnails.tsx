@@ -1,14 +1,15 @@
 import { FileFilled, FolderOpenFilled } from "@ant-design/icons";
 import { Skeleton } from "antd";
-import { useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import { Link } from "react-router";
 
-import { getPreviewUrl } from "../../api/media";
+import { getPreviewSrcSet } from "../../api/media";
 import { getFileUrl } from "../../api/storage";
 import type { ImageMetadata, StorageEntry } from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
 import { joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
+import { Image } from "../image/Image";
 import type { StorageViewProps } from "./StorageList";
 
 import styles from "./StorageThumbnails.module.css";
@@ -103,28 +104,19 @@ type ImagePreviewProps = {
 };
 
 /**
- * The 128px preview, sized from the image's headers until it loads. A box
- * shaped like the image when the server can't make one.
+ * The preview in a box shaped like the image's headers; a placeholder until it
+ * loads, or for good when the server can't make one.
  */
-const ImagePreview = ({ file, image }: ImagePreviewProps) => {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return <div className={styles.preview} style={getPreviewStyle(image)} />;
-  }
-
-  return (
-    <img
-      className={styles.image}
-      src={getPreviewUrl(file, 128)}
+const ImagePreview = ({ file, image }: ImagePreviewProps) => (
+  <div className={styles.preview} style={getPreviewStyle(image)}>
+    <Image
       width={image.width}
       height={image.height}
-      alt=""
+      srcSet={getPreviewSrcSet(file)}
       loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
     />
-  );
-};
+  </div>
+);
 
 const ThumbnailSkeleton = () => (
   <div className={styles.skeleton}>
