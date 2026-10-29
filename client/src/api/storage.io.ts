@@ -15,9 +15,10 @@ export const StorageDirIo = StorageEntryBaseIo.extend({
 /**
  * How an image carries high dynamic range: `gain_map` is an SDR image plus a
  * gain map (Ultra HDR, ISO 21496-1, Apple); `pq` and `hlg` are HDR transfer
- * functions.
+ * functions; `unknown` may be any of these, as headers alone don't tell (a JPEG
+ * XL that packs a JPEG).
  */
-export const HdrIo = z.enum(["none", "gain_map", "pq", "hlg"]);
+export const HdrIo = z.enum(["none", "unknown", "gain_map", "pq", "hlg"]);
 
 /** From the image's headers. Pixels as stored: EXIF orientation isn't applied. */
 export const ImageMetadataIo = z.object({

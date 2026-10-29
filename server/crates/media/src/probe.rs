@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     bytes::invalid_data,
-    heif, jpeg,
+    heif, jpeg, jxl,
     metadata::{Hdr, ImageMetadata},
     mime::{SNIFF_LEN, guess_mime, sniff_mime},
     png,
@@ -107,7 +107,7 @@ fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageM
         "image/jpeg" => jpeg::probe::read(reader),
         "image/png" => png::probe::read(reader),
         "image/avif" | "image/heif" => heif::probe::read(reader),
-        // GIF, WebP, BMP, TIFF and JPEG XL: sizes only.
+        "image/jxl" => jxl::probe::read(reader),
         _ => {
             let size =
                 imagesize::reader_size(reader).map_err(|e| io::Error::other(e.to_string()))?;

@@ -6,6 +6,7 @@ mod cicp;
 mod gain_map;
 mod heif;
 mod jpeg;
+mod jxl;
 mod metadata;
 mod mime;
 mod png;

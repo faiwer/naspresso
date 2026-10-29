@@ -1,13 +1,13 @@
 use std::{
     fs,
-    io::{BufRead, Seek},
+    io::{BufRead, BufReader, Cursor, Seek},
     panic,
     path::Path,
     thread::{self, ScopedJoinHandle},
 };
 
 use fast_image_resize::{PixelType, Resizer, images::Image};
-use image::{DynamicImage, ImageDecoder, ImageError, ImageReader};
+use image::{DynamicImage, ImageDecoder, ImageError, ImageFormat, ImageReader};
 use ravif::{Encoder, Img, RGB8, RGBA8};
 
 use super::{
@@ -23,6 +23,7 @@ use crate::{
         decode::{Jpeg, decode as decode_jpeg},
         mpf::find_gain_map,
     },
+    jxl::decode::{Output, decode as decode_jxl, unpack_jpeg},
     metadata::Hdr,
     probe::probe_file,
 };
@@ -64,37 +65,150 @@ impl Rendered {
 /// encoding are CPU-bound.
 pub fn render(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewError> {
     let probe = probe_file(path);
+    let hdr = probe.image.map(|image| image.hdr);
+    if probe.mime == "image/jxl" {
+        return make_previews_from_jxl(&fs::read(path)?, hdr, quality, speed);
+    }
     if !DECODABLE.contains(&probe.mime) {
         return Err(PreviewError::UnsupportedFormat(probe.mime));
     }
-    match probe.image.map(|image| image.hdr) {
+    match hdr {
         Some(Hdr::GainMap) if probe.mime == "image/jpeg" => {
-            return render_gain_mapped_jpeg(path, quality, speed);
+            return make_previews_from_gain_mapped_jpeg(&fs::read(path)?, quality, speed);
         }
         Some(Hdr::None) | None => {}
         Some(_) => return Err(PreviewError::HdrUnsupported),
     }
 
     let image = decode(ImageReader::open(path)?.with_guessed_format()?)?;
-    let mut current = if image.color().has_alpha() {
+    encode_sdr_avifs(sdr_pixels(image)?, quality, speed)
+}
+
+/// `image` as 8-bit RGB, or RGBA if it has alpha.
+fn sdr_pixels(image: DynamicImage) -> Result<Image<'static>, PreviewError> {
+    if image.color().has_alpha() {
         let size = image_size(&image);
         pixels(image.into_rgba8().into_raw(), size, PixelType::U8x4)
     } else {
         rgb(image)
-    }?;
-    let mut resizer = Resizer::new();
-    let mut avifs = Vec::with_capacity(PreviewSize::DESCENDING.len());
-    for size in PreviewSize::DESCENDING {
-        let (width, height) = fit(current.width(), current.height(), size.px());
-        current = resize(&mut resizer, current, width, height)?;
-        avifs.push((size, encode_avif(&current, quality, speed)?));
     }
+}
+
+/// SDR AVIFs from an 8-bit sRGB image, with or without alpha.
+fn encode_sdr_avifs(
+    image: Image<'static>,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    let avifs = scale(image)?
+        .into_iter()
+        .map(|(size, image)| Ok((size, encode_avif(&image, quality, speed)?)))
+        .collect::<Result<_, PreviewError>>()?;
     Ok(Rendered::new(avifs))
 }
 
-/// Gain-map AVIFs from a gain-map JPEG.
-fn render_gain_mapped_jpeg(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewError> {
-    let scaled = scale_gain_mapped_jpeg(path)?;
+/// PQ AVIFs from a 16-bit BT.2100 PQ image, with or without alpha.
+fn encode_pq_avifs(
+    image: Image<'static>,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    let scaled: Vec<_> = scale(image)?
+        .into_iter()
+        .map(|(size, image)| Ok((size, split_alpha(image)?)))
+        .collect::<Result<_, PreviewError>>()?;
+    // Edges show alpha artifacts more than color ones, so alpha gets more bits, as in ravif.
+    let alpha_quality = (quality + 100.) / 2.;
+    // Each small encode keeps only a core or two busy, so all of them run at once.
+    let encoded = thread::scope(|scope| {
+        let encodes: Vec<_> = scaled
+            .iter()
+            .map(|(size, (color, alpha))| {
+                let color = scope.spawn(|| av1::encode_pq(color, quality, speed));
+                let alpha = alpha.as_ref().map(|alpha| {
+                    scope.spawn(move || av1::encode_alpha(alpha, alpha_quality, speed))
+                });
+                (*size, color, alpha)
+            })
+            .collect();
+        encodes
+            .into_iter()
+            .map(|(size, color, alpha)| {
+                let alpha = alpha.map(join).transpose()?;
+                Ok((size, avif::write_pq(&join(color)?, alpha.as_ref())))
+            })
+            .collect::<Result<_, PreviewError>>()
+    })?;
+    Ok(Rendered::new(encoded))
+}
+
+/// A 16-bit RGB image, and its alpha channel apart if it has one.
+fn split_alpha(
+    image: Image<'static>,
+) -> Result<(Image<'static>, Option<Image<'static>>), PreviewError> {
+    if image.pixel_type() != PixelType::U16x4 {
+        return Ok((image, None));
+    }
+    let size = (image.width(), image.height());
+    let (color, alpha): (Vec<_>, Vec<_>) = image
+        .buffer()
+        .chunks_exact(8)
+        .map(|px| (<[u8; 6]>::try_from(&px[..6]).unwrap(), [px[6], px[7]]))
+        .unzip();
+    Ok((
+        pixels(color.concat(), size, PixelType::U16x3)?,
+        Some(pixels(alpha.concat(), size, PixelType::U16)?),
+    ))
+}
+
+/// `image` at every size, largest first.
+fn scale(mut image: Image<'static>) -> Result<Vec<(PreviewSize, Image<'static>)>, PreviewError> {
+    let mut resizer = Resizer::new();
+    let mut sizes = Vec::with_capacity(PreviewSize::DESCENDING.len());
+    for size in PreviewSize::DESCENDING {
+        let (width, height) = fit(image.width(), image.height(), size.px());
+        image = resize(&mut resizer, image, width, height)?;
+        sizes.push((size, image.copy()));
+    }
+    Ok(sizes)
+}
+
+/// Previews of a JPEG XL `file`: PQ for PQ and HLG images, those of the JPEG
+/// for a packed JPEG, SDR for the rest.
+fn make_previews_from_jxl(
+    file: &[u8],
+    hdr: Option<Hdr>,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    match hdr {
+        Some(Hdr::Unknown) => make_previews_from_jpeg(&unpack_jpeg(file)?, quality, speed),
+        Some(Hdr::Pq | Hdr::Hlg) => encode_pq_avifs(decode_jxl(file, Output::Pq)?, quality, speed),
+        Some(Hdr::None) | None => encode_sdr_avifs(decode_jxl(file, Output::Srgb)?, quality, speed),
+        Some(Hdr::GainMap) => Err(PreviewError::HdrUnsupported),
+    }
+}
+
+/// Gain-map AVIFs from a gain-map JPEG, SDR ones from any other.
+fn make_previews_from_jpeg(jpeg: &[u8], quality: f32, speed: u8) -> Result<Rendered, PreviewError> {
+    let probe = jpeg::probe::read(&mut BufReader::new(Cursor::new(jpeg)))?;
+    if probe.hdr == Hdr::GainMap {
+        return make_previews_from_gain_mapped_jpeg(jpeg, quality, speed);
+    }
+    let image = decode(ImageReader::with_format(
+        Cursor::new(jpeg),
+        ImageFormat::Jpeg,
+    ))?;
+    encode_sdr_avifs(sdr_pixels(image)?, quality, speed)
+}
+
+/// Gain-map AVIFs from the gain-map JPEG `file`.
+fn make_previews_from_gain_mapped_jpeg(
+    file: &[u8],
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    let scaled = scale_gain_mapped_jpeg(file)?;
     // Each small encode keeps only a core or two busy, so all six run at once.
     let encoded = thread::scope(|scope| {
         let encodes: Vec<_> = scaled
@@ -138,13 +252,12 @@ struct GainMapped {
     sizes: Vec<(PreviewSize, Image<'static>, Image<'static>)>,
 }
 
-/// The base image and gain map of the gain-map JPEG at `path`, scaled to every
+/// The base image and gain map of the gain-map JPEG `file`, scaled to every
 /// size. The gain map keeps its proportion to the base image.
-fn scale_gain_mapped_jpeg(path: &Path) -> Result<GainMapped, PreviewError> {
-    let file = fs::read(path)?;
-    let gain_map = find_gain_map(&file).ok_or(PreviewError::HdrUnsupported)?;
+fn scale_gain_mapped_jpeg(file: &[u8]) -> Result<GainMapped, PreviewError> {
+    let gain_map = find_gain_map(file).ok_or(PreviewError::HdrUnsupported)?;
     let largest = PreviewSize::DESCENDING[0].px();
-    let (full_width, full_height) = jpeg::decode::size(&file)?;
+    let (full_width, full_height) = jpeg::decode::size(file)?;
     let (base, map) = thread::scope(|scope| {
         let map = scope.spawn(|| {
             decode_jpeg(gain_map.jpeg, |width, height| {
@@ -155,7 +268,7 @@ fn scale_gain_mapped_jpeg(path: &Path) -> Result<GainMapped, PreviewError> {
                 )
             })
         });
-        let base = decode_jpeg(&file, |width, height| fit(width, height, largest));
+        let base = decode_jpeg(file, |width, height| fit(width, height, largest));
         (base, join(map))
     });
     let Jpeg {

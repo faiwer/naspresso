@@ -1,7 +1,10 @@
-//! Gain-map AVIF files (ISO/IEC 23008-12 tone-map derived items): the SDR base
-//! image as the primary item, so older readers still show it, and a `tmap`
-//! item that HDR-capable readers prefer, deriving the HDR rendition from the
-//! base and a hidden gain map.
+//! AVIF files of two kinds:
+//!
+//! - Gain-map files (ISO/IEC 23008-12 tone-map derived items): the SDR base
+//!   image as the primary item, so older readers still show it, and a `tmap`
+//!   item that HDR-capable readers prefer, deriving the HDR rendition from the
+//!   base and a hidden gain map.
+//! - PQ files: one BT.2100 PQ image, and maybe an alpha item for it.
 
 use crate::{
     av1::{Av1Image, BIT_DEPTH},
@@ -11,6 +14,8 @@ use crate::{
 const BASE_ID: u16 = 1;
 const TONE_MAP_ID: u16 = 2;
 const GAIN_MAP_ID: u16 = 3;
+/// In PQ files, which have no tone map.
+const ALPHA_ID: u16 = 2;
 /// Must differ from every item ID.
 const ALTERNATIVES_GROUP_ID: u32 = 4;
 
@@ -20,6 +25,65 @@ type Cicp = (u16, u16, u16);
 const SRGB: Cicp = (1, 13, 6);
 /// The ICC profile has the primaries and transfer; only the matrix is here.
 const MATRIX_ONLY: Cicp = (2, 2, 6);
+/// BT.2100 PQ, BT.2020 matrix: what `av1::encode_pq` codes in the bitstream.
+const BT2100_PQ: Cicp = (9, 16, 9);
+/// Major brand, minor version 0, compatible brands.
+const BRANDS: &[u8] = b"avif\0\0\0\0avifmif1miafMA1A";
+/// The `auxC` type of an alpha item.
+const ALPHA_URN: &[u8] = b"urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0";
+
+/// `image`, coded by `av1::encode_pq`, as an AVIF, with `alpha`, coded by
+/// `av1::encode_alpha`, as its alpha channel if there is one.
+pub fn write_pq(image: &Av1Image, alpha: Option<&Av1Image>) -> Vec<u8> {
+    let ftyp = plain_box(b"ftyp", BRANDS);
+    let meta = |data_start: usize| {
+        let mut properties = Properties::default();
+        let mut items = vec![(
+            BASE_ID,
+            vec![
+                properties.add(ispe(image), false),
+                properties.add(pixi(image), false),
+                properties.add(plain_box(b"av1C", &image.config), true),
+                properties.add(nclx(BT2100_PQ), false),
+            ],
+        )];
+        let mut locations = vec![(BASE_ID, data_start, image.data.len())];
+        let mut infos = vec![(BASE_ID, b"av01", false)];
+        let mut body = vec![hdlr(), full_box(b"pitm", 0, 0, &BASE_ID.to_be_bytes())];
+        if let Some(alpha) = alpha {
+            items.push((
+                ALPHA_ID,
+                vec![
+                    properties.add(ispe(alpha), false),
+                    properties.add(pixi(alpha), false),
+                    properties.add(plain_box(b"av1C", &alpha.config), true),
+                    properties.add(full_box(b"auxC", 0, 0, ALPHA_URN), true),
+                ],
+            ));
+            locations.push((ALPHA_ID, data_start + image.data.len(), alpha.data.len()));
+            infos.push((ALPHA_ID, b"av01", false));
+        }
+        let ipco = plain_box(b"ipco", &properties.boxes.concat());
+        body.extend([
+            iloc(&locations),
+            iinf(&infos),
+            plain_box(b"iprp", &[ipco, ipma(&items)].concat()),
+        ]);
+        if alpha.is_some() {
+            let auxl = [
+                ALPHA_ID.to_be_bytes(),
+                1u16.to_be_bytes(),
+                BASE_ID.to_be_bytes(),
+            ];
+            body.push(full_box(b"iref", 0, 0, &plain_box(b"auxl", &auxl.concat())));
+        }
+        full_box(b"meta", 0, 0, &body.concat())
+    };
+    let data = [&image.data[..], alpha.map_or(&[][..], |alpha| &alpha.data)].concat();
+    // Item offsets are absolute, and the meta box's size doesn't depend on them.
+    let data_start = ftyp.len() + meta(0).len() + 8;
+    [ftyp, meta(data_start), plain_box(b"mdat", &data)].concat()
+}
 
 /// `base` and `gain_map` as one AVIF. `icc` is the base image's color profile,
 /// which the HDR rendition shares; sRGB without one.
@@ -30,8 +94,7 @@ pub fn write(
     icc: Option<&[u8]>,
 ) -> Vec<u8> {
     let tone_map = [&[0][..], &metadata.to_iso()].concat();
-    // Major brand, minor version 0, compatible brands.
-    let ftyp = plain_box(b"ftyp", b"avif\0\0\0\0avifmif1miafMA1Atmap");
+    let ftyp = plain_box(b"ftyp", &[BRANDS, b"tmap"].concat());
     let file = File {
         base,
         gain_map,
@@ -65,33 +128,6 @@ impl File<'_> {
         let gain_map_at = tone_map_at + self.tone_map.len();
         let base_at = gain_map_at + self.gain_map.data.len();
 
-        let mut iloc = vec![0x44, 0x00];
-        iloc.extend(3u16.to_be_bytes());
-        for (id, at, len) in [
-            (BASE_ID, base_at, self.base.data.len()),
-            (TONE_MAP_ID, tone_map_at, self.tone_map.len()),
-            (GAIN_MAP_ID, gain_map_at, self.gain_map.data.len()),
-        ] {
-            iloc.extend(id.to_be_bytes());
-            // Data reference index 0 (this file), and one extent.
-            iloc.extend([0, 0, 0, 1]);
-            iloc.extend(u32_len(at).to_be_bytes());
-            iloc.extend(u32_len(len).to_be_bytes());
-        }
-
-        let mut iinf = 3u16.to_be_bytes().to_vec();
-        for (id, kind, hidden) in [
-            (BASE_ID, b"av01", false),
-            (TONE_MAP_ID, b"tmap", false),
-            (GAIN_MAP_ID, b"av01", true),
-        ] {
-            let mut infe = id.to_be_bytes().to_vec();
-            infe.extend([0, 0]);
-            infe.extend(kind);
-            infe.push(0);
-            iinf.extend(full_box(b"infe", 2, u32::from(hidden), &infe));
-        }
-
         // The tone-mapped image derives from the base, then the gain map.
         let mut dimg = TONE_MAP_ID.to_be_bytes().to_vec();
         let derived_from = [BASE_ID, GAIN_MAP_ID];
@@ -108,10 +144,18 @@ impl File<'_> {
         }
 
         let body = [
-            full_box(b"hdlr", 0, 0, &[&[0; 4][..], b"pict", &[0; 13]].concat()),
+            hdlr(),
             full_box(b"pitm", 0, 0, &BASE_ID.to_be_bytes()),
-            full_box(b"iloc", 0, 0, &iloc),
-            full_box(b"iinf", 0, 0, &iinf),
+            iloc(&[
+                (BASE_ID, base_at, self.base.data.len()),
+                (TONE_MAP_ID, tone_map_at, self.tone_map.len()),
+                (GAIN_MAP_ID, gain_map_at, self.gain_map.data.len()),
+            ]),
+            iinf(&[
+                (BASE_ID, b"av01", false),
+                (TONE_MAP_ID, b"tmap", false),
+                (GAIN_MAP_ID, b"av01", true),
+            ]),
             full_box(b"iref", 0, 0, &plain_box(b"dimg", &dimg)),
             self.iprp(),
             plain_box(b"grpl", &full_box(b"altr", 0, 0, &altr)),
@@ -146,20 +190,56 @@ impl File<'_> {
             properties.add(nclx(MATRIX_ONLY), false),
         ];
 
-        let mut ipma = 3u32.to_be_bytes().to_vec();
-        for (id, associations) in [
+        let ipma = ipma(&[
             (BASE_ID, base),
             (TONE_MAP_ID, tone_map),
             (GAIN_MAP_ID, gain_map),
-        ] {
-            ipma.extend(id.to_be_bytes());
-            ipma.push(associations.len() as u8);
-            ipma.extend(associations);
-        }
-
+        ]);
         let ipco = plain_box(b"ipco", &properties.boxes.concat());
-        plain_box(b"iprp", &[ipco, full_box(b"ipma", 0, 0, &ipma)].concat())
+        plain_box(b"iprp", &[ipco, ipma].concat())
     }
+}
+
+fn hdlr() -> Vec<u8> {
+    full_box(b"hdlr", 0, 0, &[&[0; 4][..], b"pict", &[0; 13]].concat())
+}
+
+/// Item locations: ID, absolute offset, length.
+fn iloc(items: &[(u16, usize, usize)]) -> Vec<u8> {
+    let mut body = vec![0x44, 0x00];
+    body.extend((items.len() as u16).to_be_bytes());
+    for &(id, at, len) in items {
+        body.extend(id.to_be_bytes());
+        // Data reference index 0 (this file), and one extent.
+        body.extend([0, 0, 0, 1]);
+        body.extend(u32_len(at).to_be_bytes());
+        body.extend(u32_len(len).to_be_bytes());
+    }
+    full_box(b"iloc", 0, 0, &body)
+}
+
+/// Item infos: ID, type, whether hidden.
+fn iinf(items: &[(u16, &[u8; 4], bool)]) -> Vec<u8> {
+    let mut body = (items.len() as u16).to_be_bytes().to_vec();
+    for &(id, kind, hidden) in items {
+        let mut infe = id.to_be_bytes().to_vec();
+        infe.extend([0, 0]);
+        infe.extend(kind);
+        infe.push(0);
+        body.extend(full_box(b"infe", 2, u32::from(hidden), &infe));
+    }
+    full_box(b"iinf", 0, 0, &body)
+}
+
+/// Item IDs with their property association bytes.
+fn ipma(items: &[(u16, Vec<u8>)]) -> Vec<u8> {
+    let mut body = (items.len() as u32).to_be_bytes().to_vec();
+    for (id, associations) in items {
+        body.extend(id.to_be_bytes());
+        body.push(associations.len() as u8);
+        body.extend(associations);
+    }
+    full_box(b"ipma", 0, 0, &body)
 }
 
 /// Item properties, each stored once however many items share it.
@@ -286,19 +366,55 @@ mod tests {
         assert_eq!(kinds, [&b"ftyp"[..], b"meta", b"mdat"]);
         assert!(find(&file, &[b"ftyp"]).ends_with(b"tmap"));
 
-        let iloc = find(&file, &[b"meta", b"iloc"]);
-        let extent = |i: usize| {
-            let entry = &iloc[8 + i * 14..];
-            let at = u32::from_be_bytes(entry[6..10].try_into().unwrap()) as usize;
-            let len = u32::from_be_bytes(entry[10..14].try_into().unwrap()) as usize;
-            &file[at..at + len]
-        };
-        assert_eq!(extent(0), b"BASE-OBUS");
-        assert_eq!(extent(1), [&[0][..], &metadata().to_iso()].concat());
-        assert_eq!(extent(2), b"MAP");
+        assert_eq!(extent(&file, 0), b"BASE-OBUS");
+        assert_eq!(extent(&file, 1), [&[0][..], &metadata().to_iso()].concat());
+        assert_eq!(extent(&file, 2), b"MAP");
 
         let altr = find(&file, &[b"meta", b"grpl", b"altr"]);
         assert_eq!(altr[8..], [0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn writes_a_pq_file() {
+        let file = write_pq(&image(b"PQ-OBUS", false), None);
+
+        let kinds: Vec<_> = boxes(&file).into_iter().map(|(kind, _)| kind).collect();
+        assert_eq!(kinds, [&b"ftyp"[..], b"meta", b"mdat"]);
+        assert_eq!(extent(&file, 0), b"PQ-OBUS");
+
+        let ipco = find(&file, &[b"meta", b"iprp", b"ipco"]);
+        assert!(contains(ipco, &nclx(BT2100_PQ)));
+        assert!(!contains(ipco, ALPHA_URN));
+    }
+
+    #[test]
+    fn writes_a_pq_file_with_alpha() {
+        let file = write_pq(&image(b"PQ-OBUS", false), Some(&image(b"ALPHA", true)));
+
+        assert_eq!(extent(&file, 0), b"PQ-OBUS");
+        assert_eq!(extent(&file, 1), b"ALPHA");
+        let ipco = find(&file, &[b"meta", b"iprp", b"ipco"]);
+        assert!(contains(ipco, ALPHA_URN));
+        let auxl = find(&file, &[b"meta", b"iref"]);
+        // After the version and flags: from the alpha item, one reference, to the image.
+        assert_eq!(
+            auxl[4..],
+            [&[0, 0, 0, 14][..], b"auxl", &[0, 2, 0, 1, 0, 1]].concat()
+        );
+    }
+
+    /// The data of the `i`-th item in `file`'s `iloc`.
+    fn extent(file: &[u8], i: usize) -> &[u8] {
+        let entry = &find(file, &[b"meta", b"iloc"])[8 + i * 14..];
+        let at = u32::from_be_bytes(entry[6..10].try_into().unwrap()) as usize;
+        let len = u32::from_be_bytes(entry[10..14].try_into().unwrap()) as usize;
+        &file[at..at + len]
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
     }
 
     #[test]

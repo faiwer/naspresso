@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::{av1, jpeg};
+use crate::{av1, jpeg, jxl};
 
 #[derive(Debug, Error)]
 pub enum PreviewError {
@@ -27,6 +27,12 @@ pub enum PreviewError {
 
 impl From<jpeg::decode::DecodeError> for PreviewError {
     fn from(e: jpeg::decode::DecodeError) -> Self {
+        Self::Decode(e.to_string())
+    }
+}
+
+impl From<jxl::decode::DecodeError> for PreviewError {
+    fn from(e: jxl::decode::DecodeError) -> Self {
         Self::Decode(e.to_string())
     }
 }
