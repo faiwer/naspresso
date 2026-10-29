@@ -4,9 +4,9 @@
 use crate::metadata::Hdr;
 
 /// SMPTE ST 2084.
-const TRANSFER_PQ: u16 = 16;
+pub const TRANSFER_PQ: u16 = 16;
 /// ARIB STD-B67.
-const TRANSFER_HLG: u16 = 18;
+pub const TRANSFER_HLG: u16 = 18;
 
 pub fn hdr_from_transfer(transfer: u16) -> Hdr {
     match transfer {

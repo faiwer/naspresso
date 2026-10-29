@@ -8,7 +8,6 @@ use std::{
 
 use fast_image_resize::{PixelType, Resizer, images::Image};
 use image::{DynamicImage, ImageDecoder, ImageError, ImageFormat, ImageReader};
-use ravif::{Encoder, Img, RGB8, RGBA8};
 
 use super::{
     PreviewError, PreviewSize,
@@ -18,7 +17,7 @@ use crate::{
     av1,
     gain_map::GainMapMetadata,
     heif::{
-        avif::{self, BaseColor},
+        avif::{self, ColorSpace},
         decode::{decode as decode_avif, decode_gain_mapped as decode_gain_mapped_avif},
     },
     jpeg::{
@@ -27,7 +26,7 @@ use crate::{
         mpf::find_gain_map,
     },
     jxl::{
-        decode::{Output, decode as decode_jxl, unpack_jpeg},
+        decode::{decode_pq as decode_jxl_pq, decode_sdr as decode_jxl_sdr, unpack_jpeg},
         gain_map::decode_gain_mapped,
     },
     metadata::Hdr,
@@ -90,8 +89,13 @@ pub fn render(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewE
         Some(_) => return Err(PreviewError::HdrUnsupported),
     }
 
-    let image = decode(ImageReader::open(path)?.with_guessed_format()?)?;
-    encode_sdr_avifs(sdr_pixels(image)?, quality, speed)
+    let (image, icc) = decode(ImageReader::open(path)?.with_guessed_format()?)?;
+    encode_sdr_avifs(
+        sdr_pixels(image)?,
+        ColorSpace::from_icc(icc),
+        quality,
+        speed,
+    )
 }
 
 /// `image` as 8-bit RGB, or RGBA if it has alpha.
@@ -104,22 +108,36 @@ fn sdr_pixels(image: DynamicImage) -> Result<Image<'static>, PreviewError> {
     }
 }
 
-/// SDR AVIFs from an 8-bit sRGB image, with or without alpha.
+/// SDR AVIFs from an 8-bit image in `color`, with or without alpha.
 fn encode_sdr_avifs(
     image: Image<'static>,
+    color: ColorSpace,
     quality: f32,
     speed: u8,
 ) -> Result<Rendered, PreviewError> {
-    let avifs = scale(image)?
-        .into_iter()
-        .map(|(size, image)| Ok((size, encode_avif(&image, quality, speed)?)))
-        .collect::<Result<_, PreviewError>>()?;
-    Ok(Rendered::new(avifs))
+    encode_still_avifs(image, &Coding::Sdr(color), quality, speed)
 }
 
 /// PQ AVIFs from a 16-bit BT.2100 PQ image, with or without alpha.
 fn encode_pq_avifs(
     image: Image<'static>,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    encode_still_avifs(image, &Coding::Pq, quality, speed)
+}
+
+/// What the pixels of a single-image preview are.
+enum Coding {
+    /// 8-bit, in this color space.
+    Sdr(ColorSpace),
+    /// 16-bit BT.2100 PQ.
+    Pq,
+}
+
+fn encode_still_avifs(
+    image: Image<'static>,
+    coding: &Coding,
     quality: f32,
     speed: u8,
 ) -> Result<Rendered, PreviewError> {
@@ -134,7 +152,10 @@ fn encode_pq_avifs(
         let encodes: Vec<_> = scaled
             .iter()
             .map(|(size, (color, alpha))| {
-                let color = scope.spawn(|| av1::encode_pq(color, quality, speed));
+                let color = scope.spawn(|| match coding {
+                    Coding::Sdr(_) => av1::encode(color, quality, speed),
+                    Coding::Pq => av1::encode_pq(color, quality, speed),
+                });
                 let alpha = alpha.as_ref().map(|alpha| {
                     scope.spawn(move || av1::encode_alpha(alpha, alpha_quality, speed))
                 });
@@ -144,30 +165,38 @@ fn encode_pq_avifs(
         encodes
             .into_iter()
             .map(|(size, color, alpha)| {
-                let alpha = alpha.map(join).transpose()?;
-                Ok((size, avif::write_pq(&join(color)?, alpha.as_ref())))
+                let (color, alpha) = (join(color)?, alpha.map(join).transpose()?);
+                let avif = match coding {
+                    Coding::Sdr(space) => avif::write_sdr(&color, alpha.as_ref(), space),
+                    Coding::Pq => avif::write_pq(&color, alpha.as_ref()),
+                };
+                Ok((size, avif))
             })
             .collect::<Result<_, PreviewError>>()
     })?;
     Ok(Rendered::new(encoded))
 }
 
-/// A 16-bit RGB image, and its alpha channel apart if it has one.
+/// An 8- or 16-bit RGB image, and its alpha channel apart if it has one.
 fn split_alpha(
     image: Image<'static>,
 ) -> Result<(Image<'static>, Option<Image<'static>>), PreviewError> {
-    if image.pixel_type() != PixelType::U16x4 {
-        return Ok((image, None));
-    }
+    let (sample_len, color_type, alpha_type) = match image.pixel_type() {
+        PixelType::U8x4 => (1, PixelType::U8x3, PixelType::U8),
+        PixelType::U16x4 => (2, PixelType::U16x3, PixelType::U16),
+        _ => return Ok((image, None)),
+    };
     let size = (image.width(), image.height());
-    let (color, alpha): (Vec<_>, Vec<_>) = image
-        .buffer()
-        .chunks_exact(8)
-        .map(|px| (<[u8; 6]>::try_from(&px[..6]).unwrap(), [px[6], px[7]]))
-        .unzip();
+    let pixel_count = image.width() as usize * image.height() as usize;
+    let mut color = Vec::with_capacity(pixel_count * 3 * sample_len);
+    let mut alpha = Vec::with_capacity(pixel_count * sample_len);
+    for px in image.buffer().chunks_exact(4 * sample_len) {
+        color.extend_from_slice(&px[..3 * sample_len]);
+        alpha.extend_from_slice(&px[3 * sample_len..]);
+    }
     Ok((
-        pixels(color.concat(), size, PixelType::U16x3)?,
-        Some(pixels(alpha.concat(), size, PixelType::U16)?),
+        pixels(color, size, color_type)?,
+        Some(pixels(alpha, size, alpha_type)?),
     ))
 }
 
@@ -194,13 +223,16 @@ fn make_previews_from_jxl(
 ) -> Result<Rendered, PreviewError> {
     match hdr {
         Some(Hdr::Unknown) => make_previews_from_jpeg(&unpack_jpeg(file)?, quality, speed),
-        Some(Hdr::Pq | Hdr::Hlg) => encode_pq_avifs(decode_jxl(file, Output::Pq)?, quality, speed),
-        Some(Hdr::None) | None => encode_sdr_avifs(decode_jxl(file, Output::Srgb)?, quality, speed),
+        Some(Hdr::Pq | Hdr::Hlg) => encode_pq_avifs(decode_jxl_pq(file)?, quality, speed),
+        Some(Hdr::None) | None => {
+            let (image, icc) = decode_jxl_sdr(file)?;
+            encode_sdr_avifs(image, ColorSpace::from_icc(icc), quality, speed)
+        }
         Some(Hdr::GainMap) => {
             let decoded = decode_gain_mapped(file)?;
             let scaled = scale_gain_mapped(
                 decoded.metadata,
-                BaseColor::Icc(decoded.icc),
+                ColorSpace::Icc(decoded.icc),
                 decoded.base,
                 decoded.gain_map,
             )?;
@@ -209,7 +241,7 @@ fn make_previews_from_jxl(
     }
 }
 
-/// Previews of an AVIF `file`: PQ for a PQ image, gain-map AVIFs for an SDR
+/// Previews of an AVIF `file`: PQ for PQ and HLG images, gain-map AVIFs for an SDR
 /// image with a gain map, SDR for the rest.
 fn make_previews_from_avif(
     file: &[u8],
@@ -218,16 +250,26 @@ fn make_previews_from_avif(
     speed: u8,
 ) -> Result<Rendered, PreviewError> {
     match hdr {
-        Some(Hdr::Pq) => {
-            let mut decoded = decode_avif(file, true)?;
-            match decoded.color {
-                BaseColor::Cicp {
-                    primaries,
-                    transfer: 16,
-                } if pq::to_bt2020(&mut decoded.image, primaries) => {}
-                _ => return Err(PreviewError::HdrUnsupported),
+        Some(Hdr::Pq | Hdr::Hlg) => {
+            let decoded = decode_avif(file, true)?;
+            let ColorSpace::Cicp {
+                primaries,
+                transfer,
+            } = decoded.color
+            else {
+                return Err(PreviewError::HdrUnsupported);
+            };
+            // Converting the largest preview rather than the whole image costs a fraction.
+            let (width, height) = fit(
+                decoded.image.width(),
+                decoded.image.height(),
+                PreviewSize::DESCENDING[0].px(),
+            );
+            let mut image = resize(&mut Resizer::new(), decoded.image, width, height)?;
+            if !pq::to_bt2100_pq(&mut image, primaries, transfer) {
+                return Err(PreviewError::HdrUnsupported);
             }
-            encode_pq_avifs(decoded.image, quality, speed)
+            encode_pq_avifs(image, quality, speed)
         }
         Some(Hdr::GainMap) => {
             let decoded = decode_gain_mapped_avif(file)?;
@@ -239,8 +281,11 @@ fn make_previews_from_avif(
             )?;
             encode_gain_mapped_avifs(&scaled, quality, speed)
         }
-        Some(Hdr::None) | None => encode_sdr_avifs(decode_avif(file, false)?.image, quality, speed),
-        Some(Hdr::Hlg | Hdr::Unknown) => Err(PreviewError::HdrUnsupported),
+        Some(Hdr::None) | None => {
+            let decoded = decode_avif(file, false)?;
+            encode_sdr_avifs(decoded.image, decoded.color, quality, speed)
+        }
+        Some(Hdr::Unknown) => Err(PreviewError::HdrUnsupported),
     }
 }
 
@@ -250,11 +295,16 @@ fn make_previews_from_jpeg(jpeg: &[u8], quality: f32, speed: u8) -> Result<Rende
     if probe.hdr == Hdr::GainMap {
         return make_previews_from_gain_mapped_jpeg(jpeg, quality, speed);
     }
-    let image = decode(ImageReader::with_format(
+    let (image, icc) = decode(ImageReader::with_format(
         Cursor::new(jpeg),
         ImageFormat::Jpeg,
     ))?;
-    encode_sdr_avifs(sdr_pixels(image)?, quality, speed)
+    encode_sdr_avifs(
+        sdr_pixels(image)?,
+        ColorSpace::from_icc(icc),
+        quality,
+        speed,
+    )
 }
 
 /// Gain-map AVIFs from the gain-map JPEG `file`.
@@ -309,7 +359,7 @@ fn join<T>(handle: ScopedJoinHandle<'_, T>) -> T {
 struct GainMapped {
     metadata: GainMapMetadata,
     /// The base image's color space.
-    color: BaseColor,
+    color: ColorSpace,
     /// Largest first: the size, the base image (RGB), the gain map (RGB or
     /// grayscale).
     sizes: Vec<(PreviewSize, Image<'static>, Image<'static>)>,
@@ -349,15 +399,19 @@ fn scale_gain_mapped_jpeg(file: &[u8]) -> Result<GainMapped, PreviewError> {
     } else {
         rgb(map)
     }?;
-    let color = icc.map_or(BaseColor::SRGB, BaseColor::Icc);
-    scale_gain_mapped(gain_map.metadata, color, rgb(base)?, map)
+    scale_gain_mapped(
+        gain_map.metadata,
+        ColorSpace::from_icc(icc),
+        rgb(base)?,
+        map,
+    )
 }
 
 /// `base` and its gain map `map` scaled to every size, the gain map keeping
 /// its proportion to the base image.
 fn scale_gain_mapped(
     metadata: GainMapMetadata,
-    color: BaseColor,
+    color: ColorSpace,
     mut base: Image<'static>,
     mut map: Image<'static>,
 ) -> Result<GainMapped, PreviewError> {
@@ -383,35 +437,15 @@ fn scale_gain_mapped(
     })
 }
 
-/// The decoded image, already upright.
-fn decode<R: BufRead + Seek>(reader: ImageReader<R>) -> Result<DynamicImage, PreviewError> {
+/// The decoded image, already upright, and its ICC profile if it has one.
+fn decode<R: BufRead + Seek>(
+    reader: ImageReader<R>,
+) -> Result<(DynamicImage, Option<Vec<u8>>), PreviewError> {
     let decode_error = |e: ImageError| PreviewError::Decode(e.to_string());
     let mut decoder = reader.into_decoder().map_err(decode_error)?;
     let orientation = decoder.orientation().map_err(decode_error)?;
+    let icc = decoder.icc_profile().map_err(decode_error)?;
     let mut image = DynamicImage::from_decoder(decoder).map_err(decode_error)?;
     image.apply_orientation(orientation);
-    Ok(image)
-}
-
-fn encode_avif(image: &Image, quality: f32, speed: u8) -> Result<Vec<u8>, PreviewError> {
-    let encoder = Encoder::new().with_quality(quality).with_speed(speed);
-    let (width, height) = (image.width() as usize, image.height() as usize);
-    let encoded = if image.pixel_type() == PixelType::U8x4 {
-        let pixels: Vec<RGBA8> = image
-            .buffer()
-            .chunks_exact(4)
-            .map(|px| RGBA8::new(px[0], px[1], px[2], px[3]))
-            .collect();
-        encoder.encode_rgba(Img::new(&pixels[..], width, height))
-    } else {
-        let pixels: Vec<RGB8> = image
-            .buffer()
-            .chunks_exact(3)
-            .map(|px| RGB8::new(px[0], px[1], px[2]))
-            .collect();
-        encoder.encode_rgb(Img::new(&pixels[..], width, height))
-    };
-    encoded
-        .map(|encoded| encoded.avif_file)
-        .map_err(|e| PreviewError::Encode(e.to_string()))
+    Ok((image, icc))
 }

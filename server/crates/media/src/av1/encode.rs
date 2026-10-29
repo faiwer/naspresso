@@ -86,20 +86,22 @@ pub fn encode_pq(image: &Image, quality: f32, speed: u8) -> Result<Av1Image, Enc
     encode_pixels(image, Some(color), &pixels, quality, speed)
 }
 
-/// The 16-bit alpha channel `image` as monochrome AV1, for an AVIF alpha
-/// item. `quality` and `speed` are as in [`encode`].
+/// The 8- or 16-bit alpha channel `image` as monochrome AV1, for an AVIF
+/// alpha item. `quality` and `speed` are as in [`encode`].
 pub fn encode_alpha(image: &Image, quality: f32, speed: u8) -> Result<Av1Image, EncodeError> {
-    if image.pixel_type() != PixelType::U16 {
-        let pixel_type = image.pixel_type();
-        return Err(EncodeError(format!(
-            "can't encode {pixel_type:?} as AV1 alpha"
-        )));
-    }
-    let pixels: Vec<_> = image
-        .buffer()
-        .chunks_exact(2)
-        .map(|v| [(f32::from(u16::from_ne_bytes([v[0], v[1]])) * MAX / 65535.).round() as u16])
-        .collect();
+    let pixels: Vec<_> = match image.pixel_type() {
+        PixelType::U8 => image.buffer().iter().map(|&v| [to_10_bit(v)]).collect(),
+        PixelType::U16 => image
+            .buffer()
+            .chunks_exact(2)
+            .map(|v| [(f32::from(u16::from_ne_bytes([v[0], v[1]])) * MAX / 65535.).round() as u16])
+            .collect(),
+        pixel_type => {
+            return Err(EncodeError(format!(
+                "can't encode {pixel_type:?} as AV1 alpha"
+            )));
+        }
+    };
     encode_pixels(image, None, &pixels, quality, speed)
 }
 
@@ -270,7 +272,8 @@ mod tests {
         let alpha = Image::from_vec_u8(32, 16, alpha, PixelType::U16).unwrap();
         let alpha = encode_alpha(&alpha, 75., 10).unwrap();
         assert!(alpha.monochrome && !alpha.data.is_empty());
-        assert!(encode_alpha(&Image::new(8, 8, PixelType::U8), 75., 10).is_err());
+        assert!(encode_alpha(&Image::new(8, 8, PixelType::U8), 75., 10).is_ok());
+        assert!(encode_alpha(&Image::new(8, 8, PixelType::U8x3), 75., 10).is_err());
     }
 
     #[test]

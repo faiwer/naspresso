@@ -1,5 +1,7 @@
 use fast_image_resize::{PixelType, images::Image};
-use jxl_oxide::{EnumColourEncoding, FrameBufferSample, ImageStream, JxlImage, RenderingIntent};
+use jxl_oxide::{
+    EnumColourEncoding, FrameBufferSample, ImageStream, JxlImage, PixelFormat, RenderingIntent,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -18,28 +20,31 @@ impl From<Box<dyn std::error::Error + Send + Sync>> for DecodeError {
     }
 }
 
-/// The color encoding to decode into.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Output {
-    /// 8-bit sRGB: `U8x3`, or `U8x4` with alpha.
-    Srgb,
-    /// 16-bit BT.2100 PQ: `U16x3`, or `U16x4` with alpha.
-    Pq,
-}
-
-/// The first frame of the JPEG XL `file`, upright, as RGB in `output`'s
-/// encoding. Grayscale and CMYK come out as RGB too.
-pub fn decode(file: &[u8], output: Output) -> Result<Image<'static>, DecodeError> {
+/// The first frame of the JPEG XL `file`, upright, as 16-bit BT.2100 PQ RGB:
+/// `U16x3`, or `U16x4` with alpha. Grayscale and CMYK come out as RGB too.
+pub fn decode_pq(file: &[u8]) -> Result<Image<'static>, DecodeError> {
     let mut image = JxlImage::builder().read(file)?;
-    image.request_color_encoding(match output {
-        Output::Srgb => EnumColourEncoding::srgb(RenderingIntent::Relative),
-        Output::Pq => EnumColourEncoding::bt2100_pq(RenderingIntent::Relative),
-    });
-    render_first_frame(&image, output == Output::Pq)
+    image.request_color_encoding(EnumColourEncoding::bt2100_pq(RenderingIntent::Relative));
+    render_first_frame(&image, true)
 }
 
-/// Like [`decode`] into 8 bits, but in the color space the image is stored
-/// in, which the returned ICC profile describes.
+/// The first frame as 8-bit RGB, `U8x3` or `U8x4`, upright. An RGB image
+/// stays in its own color space, which the returned ICC profile describes;
+/// gray and CMYK images become sRGB, without a profile.
+pub fn decode_sdr(file: &[u8]) -> Result<(Image<'static>, Option<Vec<u8>>), DecodeError> {
+    let mut image = JxlImage::builder().read(file)?;
+    if matches!(image.pixel_format(), PixelFormat::Rgb | PixelFormat::Rgba) {
+        return Ok((
+            render_first_frame(&image, false)?,
+            Some(image.rendered_icc()),
+        ));
+    }
+    image.request_color_encoding(EnumColourEncoding::srgb(RenderingIntent::Relative));
+    Ok((render_first_frame(&image, false)?, None))
+}
+
+/// Like [`decode_sdr`], but gray and CMYK images keep their own color space
+/// too, so the profile may not be an RGB one.
 pub fn decode_native(file: &[u8]) -> Result<(Image<'static>, Vec<u8>), DecodeError> {
     let image = JxlImage::builder().read(file)?;
     Ok((render_first_frame(&image, false)?, image.rendered_icc()))

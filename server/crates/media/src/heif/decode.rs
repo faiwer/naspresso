@@ -4,7 +4,7 @@
 use fast_image_resize::{PixelType, images::Image};
 
 use super::{
-    avif::{ALPHA_URN, BaseColor},
+    avif::{ALPHA_URN, ColorSpace, is_rgb_profile},
     items::Items,
 };
 use crate::{
@@ -17,22 +17,22 @@ const HEVC_ALPHA_URN: &[u8] = b"urn:mpeg:hevc:2015:auxid:1\0";
 
 pub struct Decoded {
     pub image: Image<'static>,
-    pub color: BaseColor,
+    pub color: ColorSpace,
 }
 
 /// The primary image of the AVIF `file` as 8-bit RGB or, if `wide`, 16-bit:
 /// `U8x3` or `U16x3`, `U8x4` or `U16x4` with alpha.
 pub fn decode(file: &[u8], wide: bool) -> Result<Decoded, DecodeError> {
     let items = parse(file)?;
-    let (frame, cicp, color) = decode_item(&items, items.primary)?;
-    let mut samples = frame.rgb(cicp)?;
-    if let Some(alpha) = decode_alpha(&items, &frame)? {
+    let primary = decode_item(&items, items.primary)?;
+    let mut samples = primary.rgb()?;
+    if let Some(alpha) = decode_alpha(&items, &primary)? {
         samples = with_alpha(samples, &alpha);
     }
     let samples = upright(&items, items.primary, samples);
     Ok(Decoded {
         image: to_image(&samples, wide)?,
-        color,
+        color: primary.color,
     })
 }
 
@@ -42,7 +42,7 @@ pub struct GainMapped {
     pub metadata: GainMapMetadata,
     /// 8-bit RGB.
     pub base: Image<'static>,
-    pub color: BaseColor,
+    pub color: ColorSpace,
     /// 8-bit RGB or grayscale.
     pub gain_map: Image<'static>,
 }
@@ -64,20 +64,20 @@ pub fn decode_gain_mapped(file: &[u8]) -> Result<GainMapped, DecodeError> {
         })
         .ok_or_else(|| DecodeError::new("unknown gain map metadata"))?;
 
-    let (base_frame, base_cicp, color) = decode_item(&items, base)?;
-    let (map_frame, map_cicp, _) = decode_item(&items, gain_map)?;
-    let map = if map_frame.monochrome() {
-        map_frame.luma(map_cicp.full_range)
+    let base_image = decode_item(&items, base)?;
+    let map_image = decode_item(&items, gain_map)?;
+    let map = if map_image.monochrome() {
+        map_image.luma()?
     } else {
-        map_frame.rgb(map_cicp)?
+        map_image.rgb()?
     };
     // The gain map follows the base image's orientation.
-    let base_samples = upright(&items, base, base_frame.rgb(base_cicp)?);
+    let base_samples = upright(&items, base, base_image.rgb()?);
     let map = upright(&items, base, map);
     Ok(GainMapped {
         metadata,
         base: to_image(&base_samples, false)?,
-        color,
+        color: base_image.color,
         gain_map: to_image(&map, false)?,
     })
 }
@@ -86,18 +86,170 @@ fn parse(file: &[u8]) -> Result<Items<'_>, DecodeError> {
     Items::parse(file).ok_or_else(|| DecodeError::new("AVIF without a primary item"))
 }
 
-/// The item's frame, the CICP codes to read it by, and its color space.
-fn decode_item(items: &Items, id: u32) -> Result<(Frame, Cicp, BaseColor), DecodeError> {
-    match items.item_type(id).as_ref() {
-        Some(b"av01") => {}
-        Some(b"grid") => return Err(DecodeError::new("tiled AVIFs aren't supported")),
-        _ => return Err(DecodeError::new("AVIF item isn't AV1")),
-    }
-    let data = items
-        .data(id)
-        .ok_or_else(|| DecodeError::new("AVIF item without data"))?;
-    let frame = decode_av1(&data)?;
+/// An item's image: one coded frame, or a grid of equally sized ones.
+struct Coded {
+    tiles: Vec<Frame>,
+    grid: Option<Grid>,
+    /// The codes to read the frames by.
+    cicp: Cicp,
+    color: ColorSpace,
+}
 
+impl Coded {
+    fn width(&self) -> u32 {
+        self.grid
+            .as_ref()
+            .map_or_else(|| self.tiles[0].width(), |grid| grid.width)
+    }
+
+    fn height(&self) -> u32 {
+        self.grid
+            .as_ref()
+            .map_or_else(|| self.tiles[0].height(), |grid| grid.height)
+    }
+
+    fn monochrome(&self) -> bool {
+        self.tiles[0].monochrome()
+    }
+
+    fn rgb(&self) -> Result<Samples, DecodeError> {
+        self.stitch(|tile| tile.rgb(self.cicp))
+    }
+
+    fn luma(&self) -> Result<Samples, DecodeError> {
+        self.stitch(|tile| Ok(tile.luma(self.cicp.full_range)))
+    }
+
+    /// The tiles' samples, laid out row by row and cropped to the grid's size.
+    fn stitch(
+        &self,
+        samples: impl Fn(&Frame) -> Result<Samples, DecodeError>,
+    ) -> Result<Samples, DecodeError> {
+        let Some(grid) = &self.grid else {
+            return samples(&self.tiles[0]);
+        };
+        let mut canvas: Option<Samples> = None;
+        for (i, tile) in self.tiles.iter().enumerate() {
+            let tile = samples(tile)?;
+            let canvas = canvas.get_or_insert_with(|| Samples {
+                width: grid.width,
+                height: grid.height,
+                channels: tile.channels,
+                max: tile.max,
+                values: vec![0; grid.width as usize * grid.height as usize * tile.channels],
+            });
+            if (tile.channels, tile.max) != (canvas.channels, canvas.max) {
+                return Err(DecodeError::new("AVIF grid tiles of different formats"));
+            }
+            let left = (i % grid.columns) as u32 * tile.width;
+            let top = (i / grid.columns) as u32 * tile.height;
+            place(canvas, &tile, left, top);
+        }
+        canvas.ok_or_else(|| DecodeError::new("AVIF grid without tiles"))
+    }
+}
+
+/// A `grid` item's layout.
+#[derive(Debug, PartialEq, Eq)]
+struct Grid {
+    rows: usize,
+    columns: usize,
+    width: u32,
+    height: u32,
+}
+
+fn parse_grid(data: &[u8]) -> Option<Grid> {
+    let (&[_version, flags, rows, columns], sizes) = data.split_first_chunk()?;
+    let len = if flags & 1 == 0 { 2 } else { 4 };
+    let size = |at: usize| {
+        let bytes = sizes.get(at * len..(at + 1) * len)?;
+        Some(bytes.iter().fold(0, |n, &b| n << 8 | u32::from(b)))
+    };
+    Some(Grid {
+        rows: usize::from(rows) + 1,
+        columns: usize::from(columns) + 1,
+        width: size(0)?,
+        height: size(1)?,
+    })
+}
+
+/// Copies `tile` into `canvas` at `left`, `top`, dropping what falls outside.
+fn place(canvas: &mut Samples, tile: &Samples, left: u32, top: u32) {
+    let channels = canvas.channels;
+    let visible = canvas.width.saturating_sub(left).min(tile.width) as usize * channels;
+    let rows = canvas.height.saturating_sub(top).min(tile.height) as usize;
+    let tile_rows = tile.values.chunks_exact(tile.width as usize * channels);
+    for (y, row) in tile_rows.take(rows).enumerate() {
+        let at = ((top as usize + y) * canvas.width as usize + left as usize) * channels;
+        canvas.values[at..at + visible].copy_from_slice(&row[..visible]);
+    }
+}
+
+/// The item's frames and how to read them.
+fn decode_item(items: &Items, id: u32) -> Result<Coded, DecodeError> {
+    let (tile_ids, grid) = match items.item_type(id).as_ref() {
+        Some(b"av01") => (vec![id], None),
+        Some(b"grid") => {
+            let grid = items
+                .data(id)
+                .as_deref()
+                .and_then(parse_grid)
+                .ok_or_else(|| DecodeError::new("unreadable AVIF grid"))?;
+            let tiles = items.references_from(b"dimg", id);
+            if tiles.len() != grid.rows * grid.columns {
+                return Err(DecodeError::new("AVIF grid with missing tiles"));
+            }
+            (tiles.to_vec(), Some(grid))
+        }
+        _ => return Err(DecodeError::new("AVIF item isn't AV1")),
+    };
+    let tiles = tile_ids
+        .iter()
+        .map(|&tile| {
+            if items.item_type(tile).as_ref() != Some(b"av01") {
+                return Err(DecodeError::new("AVIF grid tile isn't AV1"));
+            }
+            let data = items
+                .data(tile)
+                .ok_or_else(|| DecodeError::new("AVIF item without data"))?;
+            decode_av1(&data)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(grid) = &grid {
+        let (width, height) = (tiles[0].width(), tiles[0].height());
+        let covered = width as usize * grid.columns >= grid.width as usize
+            && height as usize * grid.rows >= grid.height as usize;
+        if !covered
+            || tiles
+                .iter()
+                .any(|tile| (tile.width(), tile.height()) != (width, height))
+        {
+            return Err(DecodeError::new("AVIF grid tiles don't fit it"));
+        }
+    }
+
+    // A grid's tiles may carry its color properties instead.
+    let (nclx, icc) = color_properties(items, id);
+    let (tile_nclx, tile_icc) = color_properties(items, tile_ids[0]);
+    // The container's codes override the bitstream's.
+    let cicp = nclx.or(tile_nclx).unwrap_or_else(|| tiles[0].cicp());
+    let color = match icc.or(tile_icc) {
+        Some(icc) if is_rgb_profile(&icc) => ColorSpace::Icc(icc),
+        _ => ColorSpace::Cicp {
+            primaries: cicp.primaries,
+            transfer: cicp.transfer,
+        },
+    };
+    Ok(Coded {
+        tiles,
+        grid,
+        cicp,
+        color,
+    })
+}
+
+/// The item's first `nclx` codes and ICC profile.
+fn color_properties(items: &Items, id: u32) -> (Option<Cicp>, Option<Vec<u8>>) {
     let (mut nclx, mut icc) = (None, None);
     for (kind, body) in items.properties(id) {
         if &kind != b"colr" {
@@ -109,16 +261,7 @@ fn decode_item(items: &Items, id: u32) -> Result<(Frame, Cicp, BaseColor), Decod
             _ => {}
         }
     }
-    // The container's codes override the bitstream's.
-    let cicp = nclx.unwrap_or_else(|| frame.cicp());
-    let color = icc.map_or(
-        BaseColor::Cicp {
-            primaries: cicp.primaries,
-            transfer: cicp.transfer,
-        },
-        BaseColor::Icc,
-    );
-    Ok((frame, cicp, color))
+    (nclx, icc)
 }
 
 fn parse_nclx(colr: &[u8]) -> Option<Cicp> {
@@ -132,7 +275,7 @@ fn parse_nclx(colr: &[u8]) -> Option<Cicp> {
 }
 
 /// The primary image's alpha, if it has one of its size.
-fn decode_alpha(items: &Items, primary: &Frame) -> Result<Option<Samples>, DecodeError> {
+fn decode_alpha(items: &Items, primary: &Coded) -> Result<Option<Samples>, DecodeError> {
     let Some(alpha) = items.references_to(*b"auxl", items.primary).find(|&id| {
         // `auxC` is a full box: version and flags come before the type.
         items
@@ -142,11 +285,11 @@ fn decode_alpha(items: &Items, primary: &Frame) -> Result<Option<Samples>, Decod
     }) else {
         return Ok(None);
     };
-    let (frame, cicp, _) = decode_item(items, alpha)?;
-    if (frame.width(), frame.height()) != (primary.width(), primary.height()) {
+    let alpha = decode_item(items, alpha)?;
+    if (alpha.width(), alpha.height()) != (primary.width(), primary.height()) {
         return Ok(None);
     }
-    Ok(Some(frame.luma(cicp.full_range)))
+    Ok(Some(alpha.luma()?))
 }
 
 /// `rgb` with `alpha`, at `rgb`'s depth, as a fourth channel.
@@ -301,6 +444,46 @@ mod tests {
         assert_eq!(mirror(column, true).values, [1, 2]);
     }
 
+    #[test]
+    fn reads_both_grid_size_widths() {
+        let grid = Grid {
+            rows: 2,
+            columns: 3,
+            width: 8160,
+            height: 4590,
+        };
+        assert_eq!(
+            parse_grid(&[0, 0, 1, 2, 0x1F, 0xE0, 0x11, 0xEE]),
+            Some(grid)
+        );
+        let wide = parse_grid(&[0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 2]).unwrap();
+        assert_eq!((wide.width, wide.height), (65536, 2));
+        assert_eq!(parse_grid(&[0, 0, 1, 2, 0x1F]), None);
+    }
+
+    #[test]
+    fn crops_tiles_at_the_canvas_edge() {
+        // 2×2 tiles of 1..=4 on a 3×3 canvas.
+        let mut canvas = Samples {
+            width: 3,
+            height: 3,
+            channels: 1,
+            max: 255,
+            values: vec![0; 9],
+        };
+        let tile = |v| Samples {
+            width: 2,
+            height: 2,
+            channels: 1,
+            max: 255,
+            values: vec![v; 4],
+        };
+        for (i, (left, top)) in [(0, 0), (2, 0), (0, 2), (2, 2)].into_iter().enumerate() {
+            place(&mut canvas, &tile(i as u16 + 1), left, top);
+        }
+        assert_eq!(canvas.values, [1, 1, 2, 1, 1, 2, 3, 3, 4]);
+    }
+
     fn rgb_image(width: u32, height: u32) -> Image<'static> {
         let rgb = (0..width * height)
             .flat_map(|i| [(i % 256) as u8, 128, 30])
@@ -329,7 +512,7 @@ mod tests {
         assert_eq!(decoded.image.pixel_type(), PixelType::U16x4);
         assert_eq!(
             decoded.color,
-            BaseColor::Cicp {
+            ColorSpace::Cicp {
                 primaries: 9,
                 transfer: 16
             }
@@ -359,12 +542,12 @@ mod tests {
             &encode(&rgb_image(32, 24), 90., 10).unwrap(),
             &encode(&luma, 90., 10).unwrap(),
             &metadata,
-            &BaseColor::SRGB,
+            &ColorSpace::SRGB,
         );
 
         let decoded = decode_gain_mapped(&file).unwrap();
         assert_eq!(decoded.metadata, metadata);
-        assert_eq!(decoded.color, BaseColor::SRGB);
+        assert_eq!(decoded.color, ColorSpace::SRGB);
         assert_eq!(
             (decoded.base.width(), decoded.base.pixel_type()),
             (32, PixelType::U8x3)

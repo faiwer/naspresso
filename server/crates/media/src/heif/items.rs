@@ -234,7 +234,7 @@ mod tests {
     use crate::{
         av1::Av1Image,
         gain_map::{ChannelMapping, Fraction, GainMapMetadata, UFraction},
-        heif::avif::{self, BaseColor},
+        heif::avif::{self, ColorSpace},
     };
 
     fn image(data: &[u8]) -> Av1Image {
@@ -267,7 +267,7 @@ mod tests {
             &image(b"BASE"),
             &image(b"MAP"),
             &metadata,
-            &BaseColor::Icc(b"ICC".to_vec()),
+            &ColorSpace::Icc(b"ICC".to_vec()),
         );
 
         let items = Items::parse(&file).unwrap();

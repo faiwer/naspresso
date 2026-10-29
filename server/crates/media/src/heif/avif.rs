@@ -4,7 +4,7 @@
 //!   image as the primary item, so older readers still show it, and a `tmap`
 //!   item that HDR-capable readers prefer, deriving the HDR rendition from the
 //!   base and a hidden gain map.
-//! - PQ files: one BT.2100 PQ image, and maybe an alpha item for it.
+//! - Still files: one image, PQ or SDR, and maybe an alpha item for it.
 
 use crate::{
     av1::{Av1Image, BIT_DEPTH},
@@ -14,7 +14,7 @@ use crate::{
 const BASE_ID: u16 = 1;
 const TONE_MAP_ID: u16 = 2;
 const GAIN_MAP_ID: u16 = 3;
-/// In PQ files, which have no tone map.
+/// In still files, which have no tone map.
 const ALPHA_ID: u16 = 2;
 /// Must differ from every item ID.
 const ALTERNATIVES_GROUP_ID: u32 = 4;
@@ -32,36 +32,75 @@ const BRANDS: &[u8] = b"avif\0\0\0\0avifmif1miafMA1A";
 /// The `auxC` type of an alpha item.
 pub const ALPHA_URN: &[u8] = b"urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0";
 
-/// The color space of a gain-map file's base image, which the HDR rendition
-/// shares.
+/// The color space of an SDR image. A gain-map file's HDR rendition shares
+/// its base image's.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BaseColor {
+pub enum ColorSpace {
     Icc(Vec<u8>),
     Cicp { primaries: u16, transfer: u16 },
 }
 
-impl BaseColor {
+impl ColorSpace {
     pub const SRGB: Self = Self::Cicp {
         primaries: 1,
         transfer: 13,
     };
+
+    /// `icc` if it's an RGB profile. Gray and CMYK profiles don't describe
+    /// the RGB pixels decoders turn such images into; those count as sRGB.
+    pub fn from_icc(icc: Option<Vec<u8>>) -> Self {
+        match icc {
+            Some(icc) if is_rgb_profile(&icc) => Self::Icc(icc),
+            _ => Self::SRGB,
+        }
+    }
+}
+
+/// Whether the ICC profile's header gives RGB as its data color space.
+pub fn is_rgb_profile(icc: &[u8]) -> bool {
+    icc.get(16..20) == Some(b"RGB ")
 }
 
 /// `image`, coded by `av1::encode_pq`, as an AVIF, with `alpha`, coded by
 /// `av1::encode_alpha`, as its alpha channel if there is one.
 pub fn write_pq(image: &Av1Image, alpha: Option<&Av1Image>) -> Vec<u8> {
+    write_still(image, alpha, vec![nclx(BT2100_PQ)])
+}
+
+/// `image`, coded by `av1::encode` and in `color`, as an AVIF, with `alpha`
+/// as in [`write_pq`].
+pub fn write_sdr(image: &Av1Image, alpha: Option<&Av1Image>, color: &ColorSpace) -> Vec<u8> {
+    write_still(image, alpha, color_boxes(color))
+}
+
+/// The `colr` boxes of an image coded by `av1::encode` in `color`.
+fn color_boxes(color: &ColorSpace) -> Vec<Vec<u8>> {
+    match color {
+        ColorSpace::Icc(icc) => vec![
+            plain_box(b"colr", &[&b"prof"[..], icc].concat()),
+            nclx(MATRIX_ONLY),
+        ],
+        &ColorSpace::Cicp {
+            primaries,
+            transfer,
+        } => vec![nclx((primaries, transfer, SDR_MATRIX))],
+    }
+}
+
+/// `image` with its `colors` boxes, and its alpha channel if there is one.
+fn write_still(image: &Av1Image, alpha: Option<&Av1Image>, colors: Vec<Vec<u8>>) -> Vec<u8> {
     let ftyp = plain_box(b"ftyp", BRANDS);
     let meta = |data_start: usize| {
         let mut properties = Properties::default();
-        let mut items = vec![(
-            BASE_ID,
-            vec![
-                properties.add(ispe(image), false),
-                properties.add(pixi(image), false),
-                properties.add(plain_box(b"av1C", &image.config), true),
-                properties.add(nclx(BT2100_PQ), false),
-            ],
-        )];
+        let mut associations = vec![
+            properties.add(ispe(image), false),
+            properties.add(pixi(image), false),
+            properties.add(plain_box(b"av1C", &image.config), true),
+        ];
+        for colr in &colors {
+            associations.push(properties.add(colr.clone(), false));
+        }
+        let mut items = vec![(BASE_ID, associations)];
         let mut locations = vec![(BASE_ID, data_start, image.data.len())];
         let mut infos = vec![(BASE_ID, b"av01", false)];
         let mut body = vec![hdlr(), full_box(b"pitm", 0, 0, &BASE_ID.to_be_bytes())];
@@ -105,7 +144,7 @@ pub fn write(
     base: &Av1Image,
     gain_map: &Av1Image,
     metadata: &GainMapMetadata,
-    color: &BaseColor,
+    color: &ColorSpace,
 ) -> Vec<u8> {
     let tone_map = [&[0][..], &metadata.to_iso()].concat();
     let ftyp = plain_box(b"ftyp", &[BRANDS, b"tmap"].concat());
@@ -131,7 +170,7 @@ struct File<'a> {
     gain_map: &'a Av1Image,
     /// The `tmap` item's payload.
     tone_map: &'a [u8],
-    color: &'a BaseColor,
+    color: &'a ColorSpace,
 }
 
 impl File<'_> {
@@ -179,15 +218,11 @@ impl File<'_> {
 
     fn iprp(&self) -> Vec<u8> {
         let mut properties = Properties::default();
-        let colors = |properties: &mut Properties| match self.color {
-            BaseColor::Icc(icc) => vec![
-                properties.add(plain_box(b"colr", &[&b"prof"[..], icc].concat()), false),
-                properties.add(nclx(MATRIX_ONLY), false),
-            ],
-            &BaseColor::Cicp {
-                primaries,
-                transfer,
-            } => vec![properties.add(nclx((primaries, transfer, SDR_MATRIX)), false)],
+        let colors = |properties: &mut Properties| -> Vec<u8> {
+            color_boxes(self.color)
+                .into_iter()
+                .map(|colr| properties.add(colr, false))
+                .collect()
         };
 
         let mut base = vec![
@@ -381,7 +416,7 @@ mod tests {
             &base,
             &gain_map,
             &metadata(),
-            &BaseColor::Icc(b"ICC".to_vec()),
+            &ColorSpace::Icc(b"ICC".to_vec()),
         );
 
         let kinds: Vec<_> = boxes(&file).into_iter().map(|(kind, _)| kind).collect();
@@ -398,7 +433,7 @@ mod tests {
 
     #[test]
     fn writes_cicp_base_colors() {
-        let color = BaseColor::Cicp {
+        let color = ColorSpace::Cicp {
             primaries: 9,
             transfer: 1,
         };
@@ -406,6 +441,41 @@ mod tests {
         let ipco = find(&file, &[b"meta", b"iprp", b"ipco"]);
         assert!(contains(ipco, &nclx((9, 1, SDR_MATRIX))));
         assert!(!contains(ipco, b"prof"));
+    }
+
+    #[test]
+    fn writes_an_sdr_file_in_its_color_space() {
+        let icc = ColorSpace::Icc(b"ICC".to_vec());
+        let file = write_sdr(&image(b"SDR-OBUS", false), Some(&image(b"A", true)), &icc);
+        assert_eq!(extent(&file, 0), b"SDR-OBUS");
+        assert_eq!(extent(&file, 1), b"A");
+        let ipco = find(&file, &[b"meta", b"iprp", b"ipco"]);
+        assert!(contains(ipco, b"profICC"));
+        assert!(contains(ipco, &nclx(MATRIX_ONLY)));
+
+        let file = write_sdr(&image(b"SDR-OBUS", false), None, &ColorSpace::SRGB);
+        let ipco = find(&file, &[b"meta", b"iprp", b"ipco"]);
+        assert!(contains(ipco, &nclx((1, 13, SDR_MATRIX))));
+        assert!(!contains(ipco, ALPHA_URN));
+    }
+
+    #[test]
+    fn keeps_only_rgb_profiles() {
+        let profile = |space: &[u8; 4]| [&[0; 16][..], space, &[0; 8]].concat();
+        let rgb = profile(b"RGB ");
+        assert_eq!(
+            ColorSpace::from_icc(Some(rgb.clone())),
+            ColorSpace::Icc(rgb)
+        );
+        assert_eq!(
+            ColorSpace::from_icc(Some(profile(b"GRAY"))),
+            ColorSpace::SRGB
+        );
+        assert_eq!(
+            ColorSpace::from_icc(Some(profile(b"CMYK"))),
+            ColorSpace::SRGB
+        );
+        assert_eq!(ColorSpace::from_icc(None), ColorSpace::SRGB);
     }
 
     #[test]
