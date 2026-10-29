@@ -1,8 +1,9 @@
 import { FileFilled, FolderOpenFilled } from "@ant-design/icons";
 import { Skeleton } from "antd";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 
+import { getPreviewUrl } from "../../api/media";
 import { getFileUrl } from "../../api/storage";
 import type { ImageMetadata, StorageEntry } from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
@@ -41,7 +42,7 @@ const Thumbnail = ({ entry, segments }: ThumbnailProps) => {
   const { name } = entry;
   const content = (
     <>
-      <ThumbnailPreview entry={entry} />
+      <ThumbnailPreview entry={entry} file={joinPath(segments)} />
       <div className={styles.name} title={name}>
         {name}
       </div>
@@ -67,8 +68,14 @@ const Thumbnail = ({ entry, segments }: ThumbnailProps) => {
   );
 };
 
-/** A folder or file icon, or a box shaped like the image. */
-const ThumbnailPreview = ({ entry }: { entry: StorageEntry }) => {
+type ThumbnailPreviewProps = {
+  entry: StorageEntry;
+  /** The entry's path, like `/a/b/c.jpg`. */
+  file: string;
+};
+
+/** A folder or file icon, or the image's preview. */
+const ThumbnailPreview = ({ entry, file }: ThumbnailPreviewProps) => {
   if (entry.kind === "dir") {
     return (
       <div className={`${styles.icon} ${styles.folder}`}>
@@ -85,8 +92,37 @@ const ThumbnailPreview = ({ entry }: { entry: StorageEntry }) => {
   }
   return (
     <div className={styles.frame}>
-      <div className={styles.preview} style={getPreviewStyle(entry.image)} />
+      <ImagePreview file={file} image={entry.image} />
     </div>
+  );
+};
+
+type ImagePreviewProps = {
+  file: string;
+  image: ImageMetadata;
+};
+
+/**
+ * The 128px preview, sized from the image's headers until it loads. A box
+ * shaped like the image when the server can't make one.
+ */
+const ImagePreview = ({ file, image }: ImagePreviewProps) => {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <div className={styles.preview} style={getPreviewStyle(image)} />;
+  }
+
+  return (
+    <img
+      className={styles.image}
+      src={getPreviewUrl(file, 128)}
+      width={image.width}
+      height={image.height}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
   );
 };
 

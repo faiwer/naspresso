@@ -34,6 +34,16 @@
   justify-content: center;
 }
 
+/* Fits the square frame; the loaded preview's own proportions win over the
+   header's, which ignore EXIF orientation. */
+.image {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  border-radius: 0.25rem;
+}
+
 .preview {
   border-radius: 0.25rem;
   background: linear-gradient(
