@@ -13,6 +13,10 @@
   );
 }
 
+.withError {
+  background: var(--color-background-secondary);
+}
+
 .image {
   position: absolute;
   inset: 0;
@@ -23,4 +27,12 @@
 
 .ready {
   opacity: 1;
+}
+
+.error {
+  position: absolute;
+  width: 80%;
+  height: 80%;
+  top: 10%;
+  left: 10%;
 }

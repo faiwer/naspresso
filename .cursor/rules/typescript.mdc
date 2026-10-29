@@ -56,6 +56,9 @@ alwaysApply: false
   not everything the closure reads.
 - Errors nobody handles go to `trackError` (`core/errors`), not `console`.
 - No reflexive `useCallback` / `useMemo`.
+- Conditional or combined class names go through `clsx`:
+  `clsx(styles.root, active && styles.active, className)`, not template
+  strings or `[…].filter(Boolean).join(" ")`.
 - Pages live in `pages/`, routes are declared in `App.tsx`.
 
 ## Checks

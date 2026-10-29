@@ -42,7 +42,11 @@ export const Image = ({
   const stableSrcSet = useMemoValue(srcSet);
   const rootRef = useRef<HTMLDivElement>(null);
   const [src, setSrc] = useState<string | null>(null);
-  const [readySrc, setReadySrc] = useState<string | null>(null);
+  const [ready, setReady] = useState<{
+    ready: boolean;
+    src: string;
+    error: boolean;
+  } | null>(null);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -50,7 +54,7 @@ export const Image = ({
       return;
     }
 
-    setReadySrc(null);
+    setReady(null);
     setSrc(
       pickSource(
         stableSrcSet,
@@ -61,17 +65,25 @@ export const Image = ({
     );
   }, [stableSrcSet, width, height]);
 
-  const ready = !!src && readySrc === src;
+  const outcome = !!src && ready?.src === src ? ready : null;
 
   return (
     <div
       ref={rootRef}
-      className={clsx(styles.root, !ready && styles.pending, className)}
+      className={clsx(
+        styles.root,
+        !outcome && styles.pending,
+        outcome?.error && styles.withError,
+        className,
+      )}
     >
       {src && (
         <img
           key={src}
-          className={clsx(styles.image, ready && styles.ready)}
+          className={clsx(
+            styles.image,
+            outcome && !outcome.error && styles.ready,
+          )}
           src={src}
           alt={alt}
           loading={loading}
@@ -87,10 +99,16 @@ export const Image = ({
                   extra: { src },
                 });
               })
-              .then(() => setReadySrc(src));
+              .then(() => setReady({ ready: true, src, error: false }));
           }}
-          onError={onError}
+          onError={() => {
+            setReady({ ready: false, src, error: true });
+            onError?.();
+          }}
         />
+      )}
+      {src && ready?.src === src && ready?.error && (
+        <img className={styles.error} src="/error.svg" alt="" />
       )}
     </div>
   );
