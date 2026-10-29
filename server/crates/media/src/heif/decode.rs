@@ -1,18 +1,23 @@
-//! AVIF images held in memory, decoded upright: the primary image with its
-//! alpha, or a gain-map file's base image and gain map.
+//! AVIF and HEIC images held in memory, decoded upright: the primary image
+//! with its alpha, or a gain-map file's base image and gain map.
+
+use std::thread;
 
 use fast_image_resize::{PixelType, images::Image};
 
 use super::{
+    apple,
     avif::{ALPHA_URN, ColorSpace, is_rgb_profile},
     items::Items,
 };
 use crate::{
-    av1::decode::{Cicp, DecodeError, Frame, Samples, decode as decode_av1},
+    av1::decode::decode as decode_av1,
     gain_map::GainMapMetadata,
+    hevc,
+    yuv::{Cicp, DecodeError, Layout, Samples, Yuv},
 };
 
-/// HEVC's alpha auxiliary type, which some AVIF writers use too.
+/// HEIC's alpha auxiliary type, which some AVIF writers use too.
 const HEVC_ALPHA_URN: &[u8] = b"urn:mpeg:hevc:2015:auxid:1\0";
 
 pub struct Decoded {
@@ -20,7 +25,7 @@ pub struct Decoded {
     pub color: ColorSpace,
 }
 
-/// The primary image of the AVIF `file` as 8-bit RGB or, if `wide`, 16-bit:
+/// The primary image of the HEIF `file` as 8-bit RGB or, if `wide`, 16-bit:
 /// `U8x3` or `U16x3`, `U8x4` or `U16x4` with alpha.
 pub fn decode(file: &[u8], wide: bool) -> Result<Decoded, DecodeError> {
     let items = parse(file)?;
@@ -47,50 +52,69 @@ pub struct GainMapped {
     pub gain_map: Image<'static>,
 }
 
-/// The base image and gain map of the AVIF `file`'s tone-map item.
-pub fn decode_gain_mapped(file: &[u8]) -> Result<GainMapped, DecodeError> {
+/// The base image and gain map of the HEIF `file`'s tone-map item or, failing
+/// that, of Apple's older gain map. `None` if it has neither, or Apple's
+/// gives no headroom.
+pub fn decode_gain_mapped(file: &[u8]) -> Result<Option<GainMapped>, DecodeError> {
     let items = parse(file)?;
-    let tone_map = items
-        .find_type(b"tmap")
-        .ok_or_else(|| DecodeError::new("AVIF without a tone-map item"))?;
-    let &[base, gain_map] = items.references_from(b"dimg", tone_map) else {
-        return Err(DecodeError::new("tone-map item without its two inputs"));
+    let (base, gain_map, metadata, apple_stops) = if let Some(tone_map) = items.find_type(b"tmap") {
+        let &[base, gain_map] = items.references_from(b"dimg", tone_map) else {
+            return Err(DecodeError::new("tone-map item without its two inputs"));
+        };
+        let metadata = items
+            .data(tone_map)
+            .and_then(|payload| match payload.split_first() {
+                Some((0, iso)) => GainMapMetadata::from_iso(iso),
+                _ => None,
+            })
+            .ok_or_else(|| DecodeError::new("unknown gain map metadata"))?;
+        (base, gain_map, metadata, None)
+    } else {
+        let Some(gain_map) = auxiliary(&items, &[apple::GAIN_MAP_URN]) else {
+            return Ok(None);
+        };
+        let Some(stops) = items
+            .find_type(b"Exif")
+            .and_then(|exif| items.data(exif))
+            .and_then(|exif| apple::headroom_stops(&exif))
+        else {
+            return Ok(None);
+        };
+        let metadata = GainMapMetadata::from_stops(stops)
+            .ok_or_else(|| DecodeError::new("unusable Apple gain map headroom"))?;
+        (items.primary, gain_map, metadata, Some(stops))
     };
-    let metadata = items
-        .data(tone_map)
-        .and_then(|payload| match payload.split_first() {
-            Some((0, iso)) => GainMapMetadata::from_iso(iso),
-            _ => None,
-        })
-        .ok_or_else(|| DecodeError::new("unknown gain map metadata"))?;
 
     let base_image = decode_item(&items, base)?;
     let map_image = decode_item(&items, gain_map)?;
-    let map = if map_image.monochrome() {
+    let mut map = if map_image.monochrome() {
         map_image.luma()?
     } else {
         map_image.rgb()?
     };
+    if let Some(stops) = apple_stops {
+        apple::to_iso_gains(&mut map, stops);
+    }
     // The gain map follows the base image's orientation.
     let base_samples = upright(&items, base, base_image.rgb()?);
     let map = upright(&items, base, map);
-    Ok(GainMapped {
+    Ok(Some(GainMapped {
         metadata,
         base: to_image(&base_samples, false)?,
         color: base_image.color,
         gain_map: to_image(&map, false)?,
-    })
+    }))
 }
 
 fn parse(file: &[u8]) -> Result<Items<'_>, DecodeError> {
-    Items::parse(file).ok_or_else(|| DecodeError::new("AVIF without a primary item"))
+    Items::parse(file).ok_or_else(|| DecodeError::new("HEIF without a primary item"))
 }
 
-/// An item's image: one coded frame, or a grid of equally sized ones.
+/// An item's image: one coded picture, or a grid of equally sized ones.
 struct Coded {
-    tiles: Vec<Frame>,
+    tiles: Vec<Yuv>,
     grid: Option<Grid>,
-    /// The codes to read the frames by.
+    /// The codes to read the pictures by.
     cicp: Cicp,
     color: ColorSpace,
 }
@@ -99,17 +123,17 @@ impl Coded {
     fn width(&self) -> u32 {
         self.grid
             .as_ref()
-            .map_or_else(|| self.tiles[0].width(), |grid| grid.width)
+            .map_or(self.tiles[0].width, |grid| grid.width)
     }
 
     fn height(&self) -> u32 {
         self.grid
             .as_ref()
-            .map_or_else(|| self.tiles[0].height(), |grid| grid.height)
+            .map_or(self.tiles[0].height, |grid| grid.height)
     }
 
     fn monochrome(&self) -> bool {
-        self.tiles[0].monochrome()
+        self.tiles[0].layout == Layout::Gray
     }
 
     fn rgb(&self) -> Result<Samples, DecodeError> {
@@ -123,7 +147,7 @@ impl Coded {
     /// The tiles' samples, laid out row by row and cropped to the grid's size.
     fn stitch(
         &self,
-        samples: impl Fn(&Frame) -> Result<Samples, DecodeError>,
+        samples: impl Fn(&Yuv) -> Result<Samples, DecodeError>,
     ) -> Result<Samples, DecodeError> {
         let Some(grid) = &self.grid else {
             return samples(&self.tiles[0]);
@@ -139,13 +163,13 @@ impl Coded {
                 values: vec![0; grid.width as usize * grid.height as usize * tile.channels],
             });
             if (tile.channels, tile.max) != (canvas.channels, canvas.max) {
-                return Err(DecodeError::new("AVIF grid tiles of different formats"));
+                return Err(DecodeError::new("HEIF grid tiles of different formats"));
             }
             let left = (i % grid.columns) as u32 * tile.width;
             let top = (i / grid.columns) as u32 * tile.height;
             place(canvas, &tile, left, top);
         }
-        canvas.ok_or_else(|| DecodeError::new("AVIF grid without tiles"))
+        canvas.ok_or_else(|| DecodeError::new("HEIF grid without tiles"))
     }
 }
 
@@ -185,46 +209,36 @@ fn place(canvas: &mut Samples, tile: &Samples, left: u32, top: u32) {
     }
 }
 
-/// The item's frames and how to read them.
+/// The item's pictures and how to read them.
 fn decode_item(items: &Items, id: u32) -> Result<Coded, DecodeError> {
     let (tile_ids, grid) = match items.item_type(id).as_ref() {
-        Some(b"av01") => (vec![id], None),
         Some(b"grid") => {
             let grid = items
                 .data(id)
                 .as_deref()
                 .and_then(parse_grid)
-                .ok_or_else(|| DecodeError::new("unreadable AVIF grid"))?;
+                .ok_or_else(|| DecodeError::new("unreadable HEIF grid"))?;
             let tiles = items.references_from(b"dimg", id);
             if tiles.len() != grid.rows * grid.columns {
-                return Err(DecodeError::new("AVIF grid with missing tiles"));
+                return Err(DecodeError::new("HEIF grid with missing tiles"));
             }
             (tiles.to_vec(), Some(grid))
         }
-        _ => return Err(DecodeError::new("AVIF item isn't AV1")),
+        _ => (vec![id], None),
     };
-    let tiles = tile_ids
-        .iter()
-        .map(|&tile| {
-            if items.item_type(tile).as_ref() != Some(b"av01") {
-                return Err(DecodeError::new("AVIF grid tile isn't AV1"));
-            }
-            let data = items
-                .data(tile)
-                .ok_or_else(|| DecodeError::new("AVIF item without data"))?;
-            decode_av1(&data)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let decoded = decode_tiles(items, &tile_ids)?;
+    let bitstream_cicp = decoded[0].1;
+    let tiles: Vec<Yuv> = decoded.into_iter().map(|(tile, _)| tile).collect();
     if let Some(grid) = &grid {
-        let (width, height) = (tiles[0].width(), tiles[0].height());
+        let (width, height) = (tiles[0].width, tiles[0].height);
         let covered = width as usize * grid.columns >= grid.width as usize
             && height as usize * grid.rows >= grid.height as usize;
         if !covered
             || tiles
                 .iter()
-                .any(|tile| (tile.width(), tile.height()) != (width, height))
+                .any(|tile| (tile.width, tile.height) != (width, height))
         {
-            return Err(DecodeError::new("AVIF grid tiles don't fit it"));
+            return Err(DecodeError::new("HEIF grid tiles don't fit it"));
         }
     }
 
@@ -232,7 +246,7 @@ fn decode_item(items: &Items, id: u32) -> Result<Coded, DecodeError> {
     let (nclx, icc) = color_properties(items, id);
     let (tile_nclx, tile_icc) = color_properties(items, tile_ids[0]);
     // The container's codes override the bitstream's.
-    let cicp = nclx.or(tile_nclx).unwrap_or_else(|| tiles[0].cicp());
+    let cicp = nclx.or(tile_nclx).or(bitstream_cicp).unwrap_or(UNLABELED);
     let color = match icc.or(tile_icc) {
         Some(icc) if is_rgb_profile(&icc) => ColorSpace::Icc(icc),
         _ => ColorSpace::Cicp {
@@ -246,6 +260,61 @@ fn decode_item(items: &Items, id: u32) -> Result<Coded, DecodeError> {
         cicp,
         color,
     })
+}
+
+/// How to read pictures that neither the container nor the bitstream labels:
+/// sRGB with BT.601 full-range YCbCr, as libheif assumes and iPhones write.
+const UNLABELED: Cicp = Cicp {
+    primaries: 1,
+    transfer: 13,
+    matrix: 6,
+    full_range: true,
+};
+
+/// The items' pictures in order, decoded on all cores, each with the codes its
+/// bitstream gives, if any.
+fn decode_tiles(items: &Items, ids: &[u32]) -> Result<Vec<(Yuv, Option<Cicp>)>, DecodeError> {
+    let threads = thread::available_parallelism().map_or(1, usize::from);
+    let chunk = ids.len().div_ceil(threads).max(1);
+    thread::scope(|scope| {
+        let workers: Vec<_> = ids
+            .chunks(chunk)
+            .map(|ids| {
+                scope.spawn(move || {
+                    ids.iter()
+                        .map(|&id| decode_tile(items, id))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+            })
+            .collect();
+        let mut tiles = Vec::with_capacity(ids.len());
+        for worker in workers {
+            let decoded = worker
+                .join()
+                .map_err(|_| DecodeError::new("HEIF decoder crashed"))?;
+            tiles.extend(decoded?);
+        }
+        Ok(tiles)
+    })
+}
+
+fn decode_tile(items: &Items, id: u32) -> Result<(Yuv, Option<Cicp>), DecodeError> {
+    let data = items
+        .data(id)
+        .ok_or_else(|| DecodeError::new("HEIF item without data"))?;
+    match items.item_type(id).as_ref() {
+        Some(b"av01") => {
+            let frame = decode_av1(&data)?;
+            Ok((frame.yuv(), Some(frame.cicp())))
+        }
+        Some(b"hvc1") => {
+            let config = items
+                .property(id, b"hvcC")
+                .ok_or_else(|| DecodeError::new("HEVC item without hvcC"))?;
+            Ok((hevc::decode(config, &data)?, None))
+        }
+        _ => Err(DecodeError::new("HEIF image of an unsupported codec")),
+    }
 }
 
 /// The item's first `nclx` codes and ICC profile.
@@ -274,15 +343,20 @@ fn parse_nclx(colr: &[u8]) -> Option<Cicp> {
     })
 }
 
-/// The primary image's alpha, if it has one of its size.
-fn decode_alpha(items: &Items, primary: &Coded) -> Result<Option<Samples>, DecodeError> {
-    let Some(alpha) = items.references_to(*b"auxl", items.primary).find(|&id| {
+/// The primary image's auxiliary item of one of the `kinds`.
+fn auxiliary(items: &Items, kinds: &[&[u8]]) -> Option<u32> {
+    items.references_to(*b"auxl", items.primary).find(|&id| {
         // `auxC` is a full box: version and flags come before the type.
         items
             .property(id, b"auxC")
             .and_then(|aux| aux.get(4..))
-            .is_some_and(|kind| kind == ALPHA_URN || kind == HEVC_ALPHA_URN)
-    }) else {
+            .is_some_and(|kind| kinds.contains(&kind))
+    })
+}
+
+/// The primary image's alpha, if it has one of its size.
+fn decode_alpha(items: &Items, primary: &Coded) -> Result<Option<Samples>, DecodeError> {
+    let Some(alpha) = auxiliary(items, &[ALPHA_URN, HEVC_ALPHA_URN]) else {
         return Ok(None);
     };
     let alpha = decode_item(items, alpha)?;
@@ -545,7 +619,7 @@ mod tests {
             &ColorSpace::SRGB,
         );
 
-        let decoded = decode_gain_mapped(&file).unwrap();
+        let decoded = decode_gain_mapped(&file).unwrap().unwrap();
         assert_eq!(decoded.metadata, metadata);
         assert_eq!(decoded.color, ColorSpace::SRGB);
         assert_eq!(

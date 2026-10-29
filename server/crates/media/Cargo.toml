@@ -12,6 +12,7 @@ infer = "0.22.0"
 jpeg-decoder = "0.3.2"
 jxl-oxide = { version = "0.12.6", features = ["moxcms"] }
 libc = "0.2.191"
+libde265-rs = "0.2.1"
 memchr = "2.8.3"
 mime_guess = "2.0.5"
 rav1e = { version = "0.8.1", default-features = false, features = ["asm", "threading"] }

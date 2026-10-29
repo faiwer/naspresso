@@ -18,7 +18,7 @@ use crate::{
     gain_map::GainMapMetadata,
     heif::{
         avif::{self, ColorSpace},
-        decode::{decode as decode_avif, decode_gain_mapped as decode_gain_mapped_avif},
+        decode::{decode as decode_heif, decode_gain_mapped as decode_gain_mapped_heif},
     },
     jpeg::{
         self,
@@ -75,8 +75,8 @@ pub fn render(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewE
     if probe.mime == "image/jxl" {
         return make_previews_from_jxl(&fs::read(path)?, hdr, quality, speed);
     }
-    if probe.mime == "image/avif" {
-        return make_previews_from_avif(&fs::read(path)?, hdr, quality, speed);
+    if probe.mime == "image/avif" || probe.mime == "image/heif" {
+        return make_previews_from_heif(&fs::read(path)?, hdr, quality, speed);
     }
     if !DECODABLE.contains(&probe.mime) {
         return Err(PreviewError::UnsupportedFormat(probe.mime));
@@ -241,9 +241,9 @@ fn make_previews_from_jxl(
     }
 }
 
-/// Previews of an AVIF `file`: PQ for PQ and HLG images, gain-map AVIFs for an SDR
-/// image with a gain map, SDR for the rest.
-fn make_previews_from_avif(
+/// Previews of an AVIF or HEIC `file`: PQ for PQ and HLG images, gain-map AVIFs
+/// for an SDR image with a gain map, SDR for the rest.
+fn make_previews_from_heif(
     file: &[u8],
     hdr: Option<Hdr>,
     quality: f32,
@@ -251,7 +251,7 @@ fn make_previews_from_avif(
 ) -> Result<Rendered, PreviewError> {
     match hdr {
         Some(Hdr::Pq | Hdr::Hlg) => {
-            let decoded = decode_avif(file, true)?;
+            let decoded = decode_heif(file, true)?;
             let ColorSpace::Cicp {
                 primaries,
                 transfer,
@@ -271,8 +271,7 @@ fn make_previews_from_avif(
             }
             encode_pq_avifs(image, quality, speed)
         }
-        Some(Hdr::GainMap) => {
-            let decoded = decode_gain_mapped_avif(file)?;
+        Some(Hdr::GainMap) if let Some(decoded) = decode_gain_mapped_heif(file)? => {
             let scaled = scale_gain_mapped(
                 decoded.metadata,
                 decoded.color,
@@ -281,8 +280,8 @@ fn make_previews_from_avif(
             )?;
             encode_gain_mapped_avifs(&scaled, quality, speed)
         }
-        Some(Hdr::None) | None => {
-            let decoded = decode_avif(file, false)?;
+        Some(Hdr::None | Hdr::GainMap) | None => {
+            let decoded = decode_heif(file, false)?;
             encode_sdr_avifs(decoded.image, decoded.color, quality, speed)
         }
         Some(Hdr::Unknown) => Err(PreviewError::HdrUnsupported),

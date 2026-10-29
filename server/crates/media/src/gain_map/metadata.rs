@@ -153,6 +153,27 @@ impl GainMapMetadata {
     }
 }
 
+impl GainMapMetadata {
+    /// For a gain map over an SDR base whose values are log2 gains from 0 to
+    /// `stops`, unweighted and without offsets, for a display `stops` brighter.
+    pub fn from_stops(stops: f64) -> Option<Self> {
+        let zero = Fraction { n: 0, d: 1 };
+        let channel = ChannelMapping {
+            gain_map_min: zero,
+            gain_map_max: Fraction::from_f64(stops)?,
+            gamma: UFraction { n: 1, d: 1 },
+            base_offset: zero,
+            alternate_offset: zero,
+        };
+        Some(Self {
+            use_base_color_space: true,
+            base_headroom: UFraction { n: 0, d: 1 },
+            alternate_headroom: UFraction::from_f64(stops)?,
+            channels: [channel; 3],
+        })
+    }
+}
+
 impl Fraction {
     fn from_f64(value: f64) -> Option<Self> {
         let n = (value * f64::from(XMP_DENOMINATOR)).round();

@@ -7,6 +7,7 @@ mod exif;
 mod gain_map;
 mod gif;
 mod heif;
+mod hevc;
 mod jpeg;
 mod jxl;
 mod metadata;
@@ -18,6 +19,7 @@ mod probe;
 #[cfg(test)]
 mod test_support;
 mod webp;
+mod yuv;
 
 pub use metadata::{Hdr, ImageMetadata};
 pub use mime::{SNIFF_LEN, sniff_mime};
