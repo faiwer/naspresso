@@ -3,11 +3,11 @@
 
 use std::io::{self, BufReader, Read, Seek};
 
-use super::{
+use crate::{
     bytes::{contains, invalid_data, read_array, read_u32, read_u64, skip},
     cicp::hdr_from_transfer,
+    metadata::{Hdr, ImageMetadata},
 };
-use crate::storage::{Hdr, ImageMetadata};
 
 /// Real `meta` boxes take a few KiB; this keeps a malformed one from making
 /// us read much.
@@ -221,7 +221,7 @@ fn be_u64(data: &[u8], at: usize) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::media::test_support::page_reader;
+    use crate::test_support::page_reader;
 
     fn bx(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let size = u32::try_from(body.len() + 8).unwrap();

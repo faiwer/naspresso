@@ -4,13 +4,13 @@ use std::{
     path::Path,
 };
 
-use super::{
+use crate::{
     bytes::invalid_data,
     heif, jpeg,
+    metadata::{Hdr, ImageMetadata},
     mime::{SNIFF_LEN, guess_mime, sniff_mime},
     png,
 };
-use crate::storage::{Hdr, ImageMetadata};
 
 /// Files with other extensions aren't opened.
 const IMAGE_EXTENSIONS: [&str; 16] = [
@@ -104,9 +104,9 @@ fn disable_read_ahead(_file: &fs::File) {}
 
 fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageMetadata> {
     match mime {
-        "image/jpeg" => jpeg::read(reader),
-        "image/png" => png::read(reader),
-        "image/avif" | "image/heif" => heif::read(reader),
+        "image/jpeg" => jpeg::probe::read(reader),
+        "image/png" => png::probe::read(reader),
+        "image/avif" | "image/heif" => heif::probe::read(reader),
         // GIF, WebP, BMP, TIFF and JPEG XL: sizes only.
         _ => {
             let size =

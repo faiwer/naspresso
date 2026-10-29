@@ -1,7 +1,7 @@
 //! Coding-independent code points (ITU-T H.273): the color signaling AVIF,
 //! HEIF and PNG share.
 
-use crate::storage::Hdr;
+use crate::metadata::Hdr;
 
 /// SMPTE ST 2084.
 const TRANSFER_PQ: u16 = 16;

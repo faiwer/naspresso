@@ -2,11 +2,11 @@
 
 use std::io::{self, BufReader, Read, Seek};
 
-use super::{
+use crate::{
     bytes::{invalid_data, read_array, read_u32, skip},
     cicp::hdr_from_transfer,
+    metadata::{Hdr, ImageMetadata},
 };
-use crate::storage::{Hdr, ImageMetadata};
 
 const SIGNATURE: [u8; 8] = *b"\x89PNG\r\n\x1a\n";
 /// Every chunk ends with a CRC.
@@ -53,7 +53,7 @@ fn chunk_header(reader: &mut impl Read) -> io::Result<(u64, [u8; 4])> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::media::test_support::page_reader;
+    use crate::test_support::page_reader;
 
     fn chunk(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let len = u32::try_from(body.len()).unwrap();

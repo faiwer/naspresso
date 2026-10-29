@@ -3,19 +3,12 @@
 
 use std::io::{self, BufReader, Read, Seek};
 
-use super::bytes::{contains_any, invalid_data, read_array, read_u8, read_u16, skip};
-use crate::storage::{Hdr, ImageMetadata};
+use super::markers::{APP1, APP2, EOI, ISO_GAIN_MAP_ID, SOI, SOS, XMP_ID, is_standalone};
+use crate::{
+    bytes::{contains_any, invalid_data, read_array, read_u8, read_u16, skip},
+    metadata::{Hdr, ImageMetadata},
+};
 
-const SOI: u8 = 0xD8;
-const EOI: u8 = 0xD9;
-const SOS: u8 = 0xDA;
-const APP1: u8 = 0xE1;
-const APP2: u8 = 0xE2;
-
-/// Opens an XMP APP1 segment.
-const XMP_ID: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
-/// Opens an ISO 21496-1 gain-map APP2 segment.
-const ISO_GAIN_MAP_ID: &[u8] = b"urn:iso:std:iso:ts:21496:-1\0";
 /// XMP properties of Ultra HDR and of Apple's HDR JPEGs.
 const GAIN_MAP_XMP: [&[u8]; 2] = [b"hdrgm:Version", b"HDRGainMapVersion"];
 
@@ -82,11 +75,6 @@ fn next_marker(reader: &mut impl Read) -> io::Result<u8> {
     }
 }
 
-/// Markers without a length or body.
-fn is_standalone(marker: u8) -> bool {
-    matches!(marker, 0x01 | 0xD0..=0xD7 | SOI)
-}
-
 /// SOF0 to SOF15, minus the Huffman (C4), arithmetic (CC) and reserved (C8)
 /// markers that share the range.
 fn is_frame_header(marker: u8) -> bool {
@@ -119,7 +107,7 @@ fn enter_if<R: Read + Seek>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::media::test_support::page_reader;
+    use crate::test_support::page_reader;
 
     fn segment(marker: u8, body: &[u8]) -> Vec<u8> {
         let len = u16::try_from(body.len() + 2).unwrap();
