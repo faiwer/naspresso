@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { joinPath } from "../../core/helpers/path";
 import { ErrorToast } from "../feedback/ErrorToast";
 import { ScrollSentinel } from "../layout/ScrollSentinel";
+import { StorageMasonry } from "./masonry/StorageMasonry";
 import { StorageList, type StorageViewProps } from "./StorageList";
 import type { StorageViewMode } from "./StorageModeSwitch";
 import { StorageTable } from "./StorageTable";
@@ -48,6 +49,7 @@ export const StorageListing = ({
 
 const VIEWS: Record<StorageViewMode, (props: StorageViewProps) => ReactNode> = {
   list: StorageList,
+  masonry: StorageMasonry,
   table: StorageTable,
   thumbnails: StorageThumbnails,
 };

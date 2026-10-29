@@ -1,0 +1,46 @@
+.root {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.column {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.preview {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.previewFill {
+  position: absolute;
+  inset: 0;
+}
+
+.icon {
+  display: flex;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  font-size: 5rem;
+}
+
+.folder {
+  color: var(--color-folder);
+}
+
+.file {
+  color: var(--color-file);
+}

@@ -1,11 +1,12 @@
 import {
   AppstoreOutlined,
+  BlockOutlined,
   TableOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import { Segmented } from "antd";
 
-export type StorageViewMode = "list" | "table" | "thumbnails";
+export type StorageViewMode = "list" | "masonry" | "table" | "thumbnails";
 
 type StorageModeSwitchProps = {
   value: StorageViewMode;
@@ -24,6 +25,11 @@ export const StorageModeSwitch = ({
         value: "thumbnails",
         icon: <AppstoreOutlined />,
         tooltip: "Thumbnails",
+      },
+      {
+        value: "masonry",
+        icon: <BlockOutlined />,
+        tooltip: "Masonry",
       },
       { value: "list", icon: <UnorderedListOutlined />, tooltip: "List" },
       { value: "table", icon: <TableOutlined />, tooltip: "Table" },
