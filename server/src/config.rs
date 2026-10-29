@@ -1,5 +1,6 @@
 use std::{
     env,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -26,6 +27,9 @@ pub struct Config {
     /// AVIF encoding speed of previews, `1..=10`, slowest to fastest.
     /// `PREVIEW_SPEED` env var.
     pub preview_speed: u8,
+    /// How many previews may render at once; the rest wait in order.
+    /// `PREVIEW_WORKERS` env var.
+    pub preview_workers: NonZeroUsize,
 }
 
 #[derive(Debug, Error)]
@@ -59,6 +63,7 @@ impl Config {
             cache: parse_created_dir_env("CACHE")?,
             preview_quality: parse_ranged_env("PREVIEW_QUALITY", 1.0, 100.0)?,
             preview_speed: parse_ranged_env("PREVIEW_SPEED", 1, 10)?,
+            preview_workers: parse_env("PREVIEW_WORKERS")?,
         })
     }
 }

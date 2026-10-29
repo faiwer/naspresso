@@ -49,7 +49,11 @@ pub async fn ls(
     let after = query.cursor.as_deref().map(decode_cursor).transpose()?;
 
     let dir = storage::resolve(&state.config.storage, &query.path).await?;
-    let page = storage::list_dir(&dir, after, limit).await?;
+    let previews = state.previews.clone();
+    let page = storage::list_dir(&dir, after, limit, move |path, modified| {
+        previews.is_fresh(path, modified)
+    })
+    .await?;
     let next_cursor = match page.entries.last() {
         Some(last) if page.has_more => Some(encode_cursor(&EntryKey::of(last))),
         _ => None,

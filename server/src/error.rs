@@ -7,7 +7,7 @@ use media::preview::PreviewError;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::storage::StorageError;
+use crate::{cancel::Cancelled, preview::PreviewCacheError, storage::StorageError};
 
 /// Top-level error type for handlers. Responds with `{ error, message }`, where
 /// `error` is a stable machine-readable code.
@@ -28,6 +28,10 @@ pub enum AppError {
     #[error("{0}")]
     NotImplemented(String),
 
+    /// The client went away; nobody reads the response.
+    #[error("cancelled")]
+    Cancelled,
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -46,6 +50,8 @@ impl AppError {
             AppError::RangeNotSupported => StatusCode::RANGE_NOT_SATISFIABLE,
             AppError::UnsupportedMediaType(_) => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             AppError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
+            // nginx's "client closed request".
+            AppError::Cancelled => StatusCode::from_u16(499).expect("499 is a valid status"),
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -57,6 +63,7 @@ impl AppError {
             AppError::RangeNotSupported => "range_not_supported",
             AppError::UnsupportedMediaType(_) => "unsupported_media_type",
             AppError::NotImplemented(_) => "not_implemented",
+            AppError::Cancelled => "cancelled",
             AppError::Internal(_) => "internal_error",
         }
     }
@@ -84,6 +91,15 @@ impl From<PreviewError> for AppError {
             PreviewError::HdrUnsupported => AppError::NotImplemented(err.to_string()),
             PreviewError::Encode(_) => AppError::Internal(anyhow::anyhow!(err)),
             PreviewError::Io(e) => AppError::Internal(e.into()),
+        }
+    }
+}
+
+impl From<PreviewCacheError> for AppError {
+    fn from(err: PreviewCacheError) -> Self {
+        match err {
+            PreviewCacheError::Preview(e) => e.into(),
+            PreviewCacheError::Cancelled(Cancelled) => AppError::Cancelled,
         }
     }
 }

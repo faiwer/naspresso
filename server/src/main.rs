@@ -2,11 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use config::Config;
+use preview::PreviewCache;
 use state::AppState;
 use tokio::{net::TcpListener, signal};
 
+mod cancel;
 mod config;
 mod error;
+mod preview;
 mod routes;
 mod state;
 mod storage;
@@ -38,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
             &config.cache,
             config.preview_quality,
             config.preview_speed,
+            config.preview_workers,
         )),
         config: Arc::new(config),
     };

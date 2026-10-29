@@ -2,6 +2,7 @@ use std::{
     fs::{self, Metadata},
     io,
     path::Path,
+    time::SystemTime,
 };
 
 use chrono::{DateTime, Utc};
@@ -37,15 +38,17 @@ impl EntryKey {
 
 /// Up to `limit` entries of `dir` in listing order, starting after `after`.
 /// Symlinks, special files and names that aren't UTF-8 are skipped. `after`
-/// doesn't have to exist anymore.
+/// doesn't have to exist anymore. `has_preview` is asked about image files,
+/// with their path and modification time, and may block.
 pub async fn list_dir(
     dir: &Path,
     after: Option<EntryKey>,
     limit: usize,
+    has_preview: impl Fn(&Path, SystemTime) -> bool + Send + 'static,
 ) -> Result<ListPage, StorageError> {
     let dir = dir.to_path_buf();
     // One blocking-pool handoff for the whole listing instead of one per syscall.
-    tokio::task::spawn_blocking(move || list_dir_blocking(&dir, after, limit))
+    tokio::task::spawn_blocking(move || list_dir_blocking(&dir, after, limit, &has_preview))
         .await
         .map_err(|e| StorageError::Io(io::Error::other(e)))?
 }
@@ -68,10 +71,13 @@ impl SortKey {
     }
 }
 
+type HasPreview = dyn Fn(&Path, SystemTime) -> bool;
+
 fn list_dir_blocking(
     dir: &Path,
     after: Option<EntryKey>,
     limit: usize,
+    has_preview: &HasPreview,
 ) -> Result<ListPage, StorageError> {
     let mut keys = read_keys(dir)?;
     keys.sort_unstable();
@@ -87,7 +93,7 @@ fn list_dir_blocking(
     while entries.len() < limit
         && let Some(key) = remaining.next()
     {
-        if let Some(entry) = read_entry(dir, key.name)? {
+        if let Some(entry) = read_entry(dir, key.name, has_preview)? {
             entries.push(entry);
         }
     }
@@ -138,18 +144,24 @@ fn read_keys(dir: &Path) -> Result<Vec<SortKey>, StorageError> {
 }
 
 /// `None` when `name` is gone or is no longer a plain file or directory.
-fn read_entry(dir: &Path, name: String) -> io::Result<Option<Entry>> {
+fn read_entry(dir: &Path, name: String, has_preview: &HasPreview) -> io::Result<Option<Entry>> {
     let path = dir.join(&name);
     let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    to_entry(name, &meta, &path)
+    to_entry(name, &meta, &path, has_preview)
 }
 
-fn to_entry(name: String, meta: &Metadata, path: &Path) -> io::Result<Option<Entry>> {
-    let modified_at = DateTime::<Utc>::from(meta.modified()?);
+fn to_entry(
+    name: String,
+    meta: &Metadata,
+    path: &Path,
+    has_preview: &HasPreview,
+) -> io::Result<Option<Entry>> {
+    let modified = meta.modified()?;
+    let modified_at = DateTime::<Utc>::from(modified);
     let created_at = meta.created().ok().map(DateTime::<Utc>::from);
     let file_type = meta.file_type();
 
@@ -167,6 +179,7 @@ fn to_entry(name: String, meta: &Metadata, path: &Path) -> io::Result<Option<Ent
             created_at,
             size: meta.len(),
             mime: probe.mime,
+            has_preview: probe.image.is_some() && has_preview(path, modified),
             image: probe.image,
         }))
     } else {
@@ -209,6 +222,10 @@ mod tests {
         }
     }
 
+    fn list(dir: &Path, after: Option<EntryKey>, limit: usize) -> Result<ListPage, StorageError> {
+        list_dir_blocking(dir, after, limit, &|_, _| false)
+    }
+
     fn names(entries: &[Entry]) -> Vec<&str> {
         entries.iter().map(Entry::name).collect()
     }
@@ -226,7 +243,7 @@ mod tests {
             .dir("Zed")
             .dir("alpha");
 
-        let page = list_dir_blocking(&tmp.0, None, 100).unwrap();
+        let page = list(&tmp.0, None, 100).unwrap();
         assert_eq!(
             names(&page.entries),
             ["alpha", "Zed", "A.txt", "b.txt", "c.txt"]
@@ -252,15 +269,15 @@ mod tests {
         let tmp = TempDir::new("pages");
         tmp.dir("d1").dir("d2").file("f1").file("f2").file("f3");
 
-        let first = list_dir_blocking(&tmp.0, None, 2).unwrap();
+        let first = list(&tmp.0, None, 2).unwrap();
         assert_eq!(names(&first.entries), ["d1", "d2"]);
         assert!(first.has_more);
 
-        let second = list_dir_blocking(&tmp.0, after(&first.entries[1]), 2).unwrap();
+        let second = list(&tmp.0, after(&first.entries[1]), 2).unwrap();
         assert_eq!(names(&second.entries), ["f1", "f2"]);
         assert!(second.has_more);
 
-        let last = list_dir_blocking(&tmp.0, after(&second.entries[1]), 2).unwrap();
+        let last = list(&tmp.0, after(&second.entries[1]), 2).unwrap();
         assert_eq!(names(&last.entries), ["f3"]);
         assert!(!last.has_more);
         assert_eq!(last.total, 5);
@@ -271,11 +288,11 @@ mod tests {
         let tmp = TempDir::new("deleted");
         tmp.file("a").file("b").file("c");
 
-        let first = list_dir_blocking(&tmp.0, None, 2).unwrap();
+        let first = list(&tmp.0, None, 2).unwrap();
         assert_eq!(names(&first.entries), ["a", "b"]);
         fs::remove_file(tmp.0.join("b")).unwrap();
 
-        let next = list_dir_blocking(&tmp.0, after(&first.entries[1]), 2).unwrap();
+        let next = list(&tmp.0, after(&first.entries[1]), 2).unwrap();
         assert_eq!(names(&next.entries), ["c"]);
         assert!(!next.has_more);
     }
@@ -285,7 +302,7 @@ mod tests {
         let tmp = TempDir::new("full");
         tmp.file("a").file("b");
 
-        let page = list_dir_blocking(&tmp.0, None, 2).unwrap();
+        let page = list(&tmp.0, None, 2).unwrap();
         assert_eq!(names(&page.entries), ["a", "b"]);
         assert!(!page.has_more);
     }
@@ -297,7 +314,7 @@ mod tests {
         tmp.file("real");
         std::os::unix::fs::symlink(tmp.0.join("real"), tmp.0.join("link")).unwrap();
 
-        let page = list_dir_blocking(&tmp.0, None, 100).unwrap();
+        let page = list(&tmp.0, None, 100).unwrap();
         assert_eq!(names(&page.entries), ["real"]);
         assert_eq!(page.total, 1);
     }
