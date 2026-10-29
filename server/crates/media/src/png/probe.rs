@@ -1,10 +1,12 @@
-//! PNG: size from IHDR, PQ or HLG from cICP. Both come before the image data.
+//! PNG: size from IHDR, PQ or HLG from cICP, orientation from eXIf. All come
+//! before the image data.
 
 use std::io::{self, BufReader, Read, Seek};
 
 use crate::{
     bytes::{invalid_data, read_array, read_u32, skip},
     cicp::hdr_from_transfer,
+    exif::{read_orientation, upright},
     metadata::{Hdr, ImageMetadata},
 };
 
@@ -30,19 +32,25 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
     skip(reader, len - 8 + CRC_LEN)?;
 
     let mut hdr = Hdr::None;
+    let mut orientation = 1;
     loop {
         let (len, kind) = chunk_header(reader)?;
         match &kind {
             b"cICP" if len >= 4 => {
                 let [_primaries, transfer, _matrix, _full_range] = read_array(reader)?;
                 hdr = hdr_from_transfer(transfer.into());
-                break;
+                skip(reader, len - 4 + CRC_LEN)?;
+            }
+            b"eXIf" => {
+                orientation = read_orientation(reader, len)?;
+                skip(reader, CRC_LEN)?;
             }
             b"IDAT" | b"IEND" => break,
             _ => skip(reader, len + CRC_LEN)?,
         }
     }
 
+    let (width, height) = upright((width, height), orientation);
     Ok(ImageMetadata { width, height, hdr })
 }
 
@@ -53,7 +61,7 @@ fn chunk_header(reader: &mut impl Read) -> io::Result<(u64, [u8; 4])> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::page_reader;
+    use crate::test_support::{page_reader, tiff};
 
     fn chunk(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let len = u32::try_from(body.len()).unwrap();
@@ -94,6 +102,15 @@ mod tests {
         assert_eq!(read(&mut reader).unwrap().hdr, Hdr::Pq);
         let (mut reader, _) = page_reader(hlg);
         assert_eq!(read(&mut reader).unwrap().hdr, Hdr::Hlg);
+    }
+
+    #[test]
+    fn turns_the_size_by_the_exif_orientation() {
+        let exif = chunk(b"eXIf", &tiff(8));
+        let pq = chunk(b"cICP", &[9, 16, 0, 1]);
+        let (mut reader, _) = page_reader(png(800, 600, &[pq, exif]));
+        let meta = read(&mut reader).unwrap();
+        assert_eq!((meta.width, meta.height, meta.hdr), (600, 800, Hdr::Pq));
     }
 
     #[test]

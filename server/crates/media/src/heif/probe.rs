@@ -1,4 +1,4 @@
-//! HEIF and AVIF: size and HDR kind from the `meta` box, which is read whole.
+//! HEIF and AVIF: size, rotation and HDR kind from the `meta` box, which is read whole.
 //! The boxes before it are skipped. Encoders put `meta` near the start.
 
 use std::io::{self, BufReader, Read, Seek};
@@ -93,6 +93,17 @@ fn parse_meta(meta: &[u8]) -> Option<ImageMetadata> {
             None
         }
     })?;
+    // Counter-clockwise quarter turns, applied after decoding; `ispe` is the size before.
+    let quarter_turns = primary_properties
+        .iter()
+        .find_map(|(kind, body)| (kind == b"irot").then(|| body.first().map(|angle| angle & 3)))
+        .flatten()
+        .unwrap_or(0);
+    let (width, height) = if quarter_turns % 2 == 1 {
+        (height, width)
+    } else {
+        (width, height)
+    };
     let hdr = if gain_map {
         Hdr::GainMap
     } else {
@@ -323,6 +334,14 @@ mod tests {
     fn reads_the_primary_size() {
         let meta = probe(Fixture::avif(vec![ispe(4032, 3024)]));
         assert_eq!((meta.width, meta.height, meta.hdr), (4032, 3024, Hdr::None));
+    }
+
+    #[test]
+    fn turns_the_size_by_irot() {
+        let quarter = probe(Fixture::avif(vec![ispe(4032, 3024), bx(b"irot", &[1])]));
+        assert_eq!((quarter.width, quarter.height), (3024, 4032));
+        let half = probe(Fixture::avif(vec![ispe(4032, 3024), bx(b"irot", &[2])]));
+        assert_eq!((half.width, half.height), (4032, 3024));
     }
 
     #[test]

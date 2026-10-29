@@ -3,7 +3,7 @@ use serde::Serialize;
 /// What a listing knows about an image from its headers, without decoding it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ImageMetadata {
-    /// Pixels, as stored: EXIF orientation isn't applied.
+    /// Pixels, upright: as shown once the orientation is applied.
     pub width: u32,
     pub height: u32,
     pub hdr: Hdr,

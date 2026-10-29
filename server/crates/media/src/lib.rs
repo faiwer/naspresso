@@ -3,6 +3,7 @@
 mod av1;
 mod bytes;
 mod cicp;
+mod exif;
 mod gain_map;
 mod heif;
 mod jpeg;
@@ -14,6 +15,7 @@ pub mod preview;
 mod probe;
 #[cfg(test)]
 mod test_support;
+mod webp;
 
 pub use metadata::{Hdr, ImageMetadata};
 pub use mime::{SNIFF_LEN, sniff_mime};

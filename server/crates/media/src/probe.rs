@@ -1,15 +1,16 @@
 use std::{
     fs,
-    io::{self, BufRead, BufReader},
+    io::{self, BufRead, BufReader, Seek, SeekFrom},
     path::Path,
 };
 
 use crate::{
     bytes::invalid_data,
+    exif::{self, upright},
     heif, jpeg, jxl,
     metadata::{Hdr, ImageMetadata},
     mime::{SNIFF_LEN, guess_mime, sniff_mime},
-    png,
+    png, webp,
 };
 
 /// Files with other extensions aren't opened.
@@ -109,17 +110,33 @@ fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageM
         "image/avif" | "image/heif" => heif::probe::read(reader),
         "image/jxl" => jxl::probe::read(reader),
         _ => {
-            let size =
-                imagesize::reader_size(reader).map_err(|e| io::Error::other(e.to_string()))?;
-            let dimension =
-                |value: usize| u32::try_from(value).map_err(|_| invalid_data("image too large"));
+            let size = read_size(reader)?;
+            reader.rewind()?;
+            let orientation = match mime {
+                "image/webp" => webp::probe::read_orientation(reader)?,
+                "image/tiff" => {
+                    let len = reader.seek(SeekFrom::End(0))?;
+                    reader.rewind()?;
+                    exif::read_orientation(reader, len)?
+                }
+                _ => 1,
+            };
+            let (width, height) = upright(size, orientation);
             Ok(ImageMetadata {
-                width: dimension(size.width)?,
-                height: dimension(size.height)?,
+                width,
+                height,
                 hdr: Hdr::None,
             })
         }
     }
+}
+
+/// The stored size, by the `imagesize` crate.
+fn read_size(reader: &mut BufReader<fs::File>) -> io::Result<(u32, u32)> {
+    let size = imagesize::reader_size(reader).map_err(|e| io::Error::other(e.to_string()))?;
+    let dimension =
+        |value: usize| u32::try_from(value).map_err(|_| invalid_data("image too large"));
+    Ok((dimension(size.width)?, dimension(size.height)?))
 }
 
 #[cfg(test)]

@@ -1,11 +1,13 @@
-//! JPEG: size from the frame header, gain-map HDR from the segments before it.
-//! Segment bodies are skipped, except XMP, which is read until a match.
+//! JPEG: size from the frame header; orientation and gain-map HDR from the
+//! segments before it. Segment bodies are skipped, except EXIF's first
+//! directory and XMP, which is read until a match.
 
 use std::io::{self, BufReader, Read, Seek};
 
-use super::markers::{APP1, APP2, EOI, ISO_GAIN_MAP_ID, SOI, SOS, XMP_ID, is_standalone};
+use super::markers::{APP1, APP2, EOI, EXIF_ID, ISO_GAIN_MAP_ID, SOI, SOS, XMP_ID, is_standalone};
 use crate::{
     bytes::{contains_any, invalid_data, read_array, read_u8, read_u16, skip},
+    exif::{read_orientation, upright},
     metadata::{Hdr, ImageMetadata},
 };
 
@@ -19,6 +21,7 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
     }
 
     let mut gain_map = false;
+    let mut orientation = 1;
     loop {
         let marker = next_marker(reader)?;
         if is_standalone(marker) {
@@ -40,22 +43,22 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
                 if width == 0 || height == 0 {
                     return Err(invalid_data("no size in the frame header"));
                 }
+                let (width, height) = upright((width.into(), height.into()), orientation);
                 return Ok(ImageMetadata {
-                    width: width.into(),
-                    height: height.into(),
+                    width,
+                    height,
                     hdr: if gain_map { Hdr::GainMap } else { Hdr::None },
                 });
             }
-            APP1 => {
-                if let Some(rest) = enter_if(reader, body, XMP_ID)? {
-                    gain_map |= contains_any(reader, rest, &GAIN_MAP_XMP)?;
-                }
-            }
+            APP1 => match read_id(reader, body, &[XMP_ID, EXIF_ID])? {
+                (Some(XMP_ID), rest) => gain_map |= contains_any(reader, rest, &GAIN_MAP_XMP)?,
+                (Some(_), rest) => orientation = read_orientation(reader, rest)?,
+                (None, rest) => skip(reader, rest)?,
+            },
             APP2 => {
-                if let Some(rest) = enter_if(reader, body, ISO_GAIN_MAP_ID)? {
-                    gain_map = true;
-                    skip(reader, rest)?;
-                }
+                let (id, rest) = read_id(reader, body, &[ISO_GAIN_MAP_ID])?;
+                gain_map |= id.is_some();
+                skip(reader, rest)?;
             }
             _ => skip(reader, body)?,
         }
@@ -81,33 +84,34 @@ fn is_frame_header(marker: u8) -> bool {
     matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC)
 }
 
-/// Reads a segment body's leading identifier. When it's `id`, returns the
-/// bytes left in the body, unread; otherwise skips the whole body.
-fn enter_if<R: Read + Seek>(
-    reader: &mut BufReader<R>,
+/// Which of `ids` a segment body of `body` bytes opens with, if any, and how
+/// many of its bytes are left unread. Reads only as far as some id still
+/// matches, so whatever follows a match is untouched.
+fn read_id<'a>(
+    reader: &mut impl Read,
     body: u64,
-    id: &[u8],
-) -> io::Result<Option<u64>> {
-    let id_len = id.len() as u64;
-    if body < id_len {
-        skip(reader, body)?;
-        return Ok(None);
-    }
-    let mut prefix = vec![0; id.len()];
-    reader.read_exact(&mut prefix)?;
-    let rest = body - id_len;
-    if prefix == id {
-        Ok(Some(rest))
-    } else {
-        skip(reader, rest)?;
-        Ok(None)
+    ids: &[&'a [u8]],
+) -> io::Result<(Option<&'a [u8]>, u64)> {
+    let mut prefix = Vec::new();
+    loop {
+        let left = body - prefix.len() as u64;
+        if let Some(id) = ids.iter().find(|id| **id == prefix) {
+            return Ok((Some(id), left));
+        }
+        let matching = ids
+            .iter()
+            .any(|id| id.starts_with(&prefix) && id.len() as u64 <= body);
+        if !matching {
+            return Ok((None, left));
+        }
+        prefix.push(read_u8(reader)?);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::page_reader;
+    use crate::test_support::{page_reader, tiff};
 
     fn segment(marker: u8, body: &[u8]) -> Vec<u8> {
         let len = u16::try_from(body.len() + 2).unwrap();
@@ -159,6 +163,22 @@ mod tests {
         let meta = read(&mut reader).unwrap();
         assert_eq!((meta.width, meta.height), (4032, 3024));
         // The first page, then the page at the frame header.
+        assert!(
+            read_bytes.get() <= 2 * 4096,
+            "read {} bytes",
+            read_bytes.get()
+        );
+    }
+
+    #[test]
+    fn turns_the_size_by_the_exif_orientation() {
+        let mut body = [EXIF_ID, &tiff(6)].concat();
+        body.resize(60_000, 0x55);
+        let data = jpeg(&[segment(APP1, &body), frame_header(4032, 3024)]);
+        let (mut reader, read_bytes) = page_reader(data);
+
+        let meta = read(&mut reader).unwrap();
+        assert_eq!((meta.width, meta.height), (3024, 4032));
         assert!(
             read_bytes.get() <= 2 * 4096,
             "read {} bytes",

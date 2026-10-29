@@ -39,3 +39,14 @@ pub fn page_reader(data: Vec<u8>) -> (BufReader<CountingReader>, Rc<Cell<usize>>
     };
     (BufReader::with_capacity(SNIFF_LEN, reader), read)
 }
+
+/// A big-endian TIFF structure, as EXIF blocks hold, whose first directory
+/// has `orientation` after another tag.
+pub fn tiff(orientation: u16) -> Vec<u8> {
+    let mut data = b"MM\0*\0\0\0\x08\0\x02".to_vec();
+    data.extend([0x01, 0x0F, 0, 2, 0, 0, 0, 4, b'A', b'B', b'C', 0]);
+    data.extend([0x01, 0x12, 0, 3, 0, 0, 0, 1]);
+    data.extend(orientation.to_be_bytes());
+    data.extend([0, 0, 0, 0, 0, 0]);
+    data
+}

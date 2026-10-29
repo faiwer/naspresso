@@ -6,6 +6,8 @@ pub const SOS: u8 = 0xDA;
 pub const APP1: u8 = 0xE1;
 pub const APP2: u8 = 0xE2;
 
+/// Opens an EXIF APP1 segment.
+pub const EXIF_ID: &[u8] = b"Exif\0\0";
 /// Opens an XMP APP1 segment.
 pub const XMP_ID: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 /// Opens an ISO 21496-1 gain-map APP2 segment.

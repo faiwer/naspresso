@@ -1,0 +1,3 @@
+//! WebP.
+
+pub mod probe;

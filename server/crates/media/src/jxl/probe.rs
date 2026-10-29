@@ -1,4 +1,4 @@
-//! JPEG XL: size and transfer function from the image header, which comes
+//! JPEG XL: size, orientation and transfer function from the image header, which comes
 //! before the image data along with the embedded ICC profile, if any. A packed
 //! JPEG's gain map is out of reach, so those report [`Hdr::Unknown`].
 
@@ -8,6 +8,7 @@ use jxl_oxide::{HdrType, InitializeResult, JxlImage};
 
 use crate::{
     bytes::{invalid_data, read_array, read_u32, read_u64, skip},
+    exif::upright,
     metadata::{Hdr, ImageMetadata},
 };
 
@@ -19,7 +20,11 @@ const CONTAINER_SIGNATURE: [u8; 12] = *b"\0\0\0\x0cJXL \r\n\x87\n";
 /// Expects the reader at the start of the file.
 pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetadata> {
     let image = read_header(reader)?;
-    let size = &image.image_header().size;
+    let header = image.image_header();
+    let (width, height) = upright(
+        (header.size.width, header.size.height),
+        header.metadata.orientation,
+    );
     reader.rewind()?;
     let hdr = if packs_jpeg(reader)? {
         Hdr::Unknown
@@ -30,11 +35,7 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
             None => Hdr::None,
         }
     };
-    Ok(ImageMetadata {
-        width: size.width,
-        height: size.height,
-        hdr,
-    })
+    Ok(ImageMetadata { width, height, hdr })
 }
 
 /// The image with its header parsed, having read little past it.
