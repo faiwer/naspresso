@@ -18,6 +18,14 @@ pub struct Config {
     /// Canonicalized at startup, so it's absolute and known to be an existing
     /// directory.
     pub storage: PathBuf,
+    /// Where derived files, like thumbnails, are kept. `CACHE` env var. Resolved
+    /// like `storage`, but created at startup if missing: it's disposable.
+    pub cache: PathBuf,
+    /// AVIF quality of previews, `1..=100`. `PREVIEW_QUALITY` env var.
+    pub preview_quality: f32,
+    /// AVIF encoding speed of previews, `1..=10`, slowest to fastest.
+    /// `PREVIEW_SPEED` env var.
+    pub preview_speed: u8,
 }
 
 #[derive(Debug, Error)]
@@ -48,8 +56,27 @@ impl Config {
             host: parse_env("HOST")?,
             port: parse_env("PORT")?,
             storage: parse_dir_env("STORAGE")?,
+            cache: parse_created_dir_env("CACHE")?,
+            preview_quality: parse_ranged_env("PREVIEW_QUALITY", 1.0, 100.0)?,
+            preview_speed: parse_ranged_env("PREVIEW_SPEED", 1, 10)?,
         })
     }
+}
+
+/// Like [`parse_env`], but only `min..=max` is valid.
+fn parse_ranged_env<T>(var: &'static str, min: T, max: T) -> Result<T, ConfigError>
+where
+    T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    let value = parse_env::<T>(var)?;
+    if !(min..=max).contains(&value) {
+        return Err(ConfigError::InvalidValue {
+            var,
+            source: format!("must be {min} to {max}, got {value}").into(),
+        });
+    }
+    Ok(value)
 }
 
 /// Read and parse a required env var. Unset and blank both count as missing.
@@ -85,4 +112,14 @@ fn parse_dir_env(var: &'static str) -> Result<PathBuf, ConfigError> {
     }
 
     Ok(canonical)
+}
+
+/// Like [`parse_dir_env`], but creates the directory first.
+fn parse_created_dir_env(var: &'static str) -> Result<PathBuf, ConfigError> {
+    let path = Path::new(MANIFEST_DIR).join(parse_env::<PathBuf>(var)?);
+    std::fs::create_dir_all(&path).map_err(|e| ConfigError::InvalidValue {
+        var,
+        source: Box::new(e),
+    })?;
+    parse_dir_env(var)
 }

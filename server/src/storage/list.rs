@@ -5,8 +5,9 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+use media::probe_file;
 
-use super::{Dir, Entry, EntryKind, File, StorageError, media::probe_file};
+use super::{Dir, Entry, EntryKind, File, StorageError};
 
 /// One page of a directory listing.
 pub struct ListPage {

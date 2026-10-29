@@ -2,9 +2,8 @@ use chrono::{
     DateTime, Utc,
     serde::{ts_milliseconds, ts_milliseconds_option},
 };
+use media::ImageMetadata;
 use serde::Serialize;
-
-use super::ImageMetadata;
 
 #[derive(Serialize)]
 pub struct File {

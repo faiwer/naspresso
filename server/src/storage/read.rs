@@ -4,16 +4,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use media::{SNIFF_LEN, sniff_mime};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt},
 };
 use twox_hash::XxHash3_64;
 
-use super::{
-    StorageError,
-    media::{SNIFF_LEN, sniff_mime},
-};
+use super::StorageError;
 
 pub struct OpenedFile {
     pub file: fs::File,

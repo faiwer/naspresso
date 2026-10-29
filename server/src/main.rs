@@ -25,9 +25,20 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("binding to {host}:{port}"))?;
 
     let local_addr = listener.local_addr().context("reading local addr")?;
-    tracing::info!(%local_addr, storage = %config.storage.display(), "server listening");
+    tracing::info!(
+        %local_addr,
+        storage = %config.storage.display(),
+        cache = %config.cache.display(),
+        "server listening"
+    );
 
     let state = AppState {
+        previews: Arc::new(PreviewCache::new(
+            config.storage.clone(),
+            &config.cache,
+            config.preview_quality,
+            config.preview_speed,
+        )),
         config: Arc::new(config),
     };
     axum::serve(listener, routes::router(state))
