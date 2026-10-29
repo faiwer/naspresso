@@ -1,0 +1,9 @@
+.rootCrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.rootIcon {
+  color: var(--color-folder);
+}

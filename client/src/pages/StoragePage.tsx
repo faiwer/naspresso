@@ -1,3 +1,4 @@
+import { DatabaseFilled } from "@ant-design/icons";
 import { Breadcrumb } from "antd";
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
@@ -13,6 +14,8 @@ import {
 import { joinPath } from "../core/helpers/path";
 import { useAsyncEffect } from "../core/hooks/useAsyncEffect";
 import { parseStorageUrl, routes } from "../core/routes";
+
+import styles from "./StoragePage.module.css";
 /**
  * Lists a directory of `STORAGE`. Mounted at `/storage/*`; the rest of the URL is the
  * directory path, built by `routes.storage`.
@@ -24,12 +27,18 @@ export const StoragePage = () => {
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(
     null,
   );
-  const breadcrumbs = ["Storage", ...segments].map((name, index) => ({
+  const rootLabel = (
+    <span className={styles.rootCrumb}>
+      <DatabaseFilled className={styles.rootIcon} />
+      Storage
+    </span>
+  );
+  const breadcrumbs = [rootLabel, ...segments].map((label, index) => ({
     title:
       index === segments.length ? (
-        name
+        label
       ) : (
-        <Link to={routes.storage(segments.slice(0, index))}>{name}</Link>
+        <Link to={routes.storage(segments.slice(0, index))}>{label}</Link>
       ),
   }));
 
