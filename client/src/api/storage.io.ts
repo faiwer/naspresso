@@ -20,11 +20,13 @@ export const StorageDirIo = StorageEntryBaseIo.extend({
  */
 export const HdrIo = z.enum(["none", "unknown", "gain_map", "pq", "hlg"]);
 
-/** From the image's headers. Pixels as stored: EXIF orientation isn't applied. */
+/** From the image's headers. Pixels, upright: the orientation is applied. */
 export const ImageMetadataIo = z.object({
   width: z.number(),
   height: z.number(),
   hdr: HdrIo,
+  /** Has frames to play; previews show the first. */
+  animated: z.boolean(),
 });
 
 export const StorageFileIo = StorageEntryBaseIo.extend({

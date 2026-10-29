@@ -36,7 +36,12 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
         None if boxes.gain_map => Hdr::GainMap,
         None => Hdr::None,
     };
-    Ok(ImageMetadata { width, height, hdr })
+    Ok(ImageMetadata {
+        width,
+        height,
+        hdr,
+        animated: header.metadata.animation.is_some(),
+    })
 }
 
 /// The image with its header parsed, having read little past it.

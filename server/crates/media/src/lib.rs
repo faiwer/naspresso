@@ -5,6 +5,7 @@ mod bytes;
 mod cicp;
 mod exif;
 mod gain_map;
+mod gif;
 mod heif;
 mod jpeg;
 mod jxl;

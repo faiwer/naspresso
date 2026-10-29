@@ -7,6 +7,9 @@ pub struct ImageMetadata {
     pub width: u32,
     pub height: u32,
     pub hdr: Hdr,
+    /// Whether it has frames to play: a GIF, APNG, WebP or JPEG XL animation,
+    /// or a HEIF or AVIF sequence. Previews show the first frame.
+    pub animated: bool,
 }
 
 /// How an image carries high dynamic range, if at all.

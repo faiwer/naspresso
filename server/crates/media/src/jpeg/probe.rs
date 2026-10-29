@@ -48,6 +48,7 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
                     width,
                     height,
                     hdr: if gain_map { Hdr::GainMap } else { Hdr::None },
+                    animated: false,
                 });
             }
             APP1 => match read_id(reader, body, &[XMP_ID, EXIF_ID])? {

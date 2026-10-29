@@ -7,7 +7,7 @@ use std::{
 use crate::{
     bytes::invalid_data,
     exif::{self, upright},
-    heif, jpeg, jxl,
+    gif, heif, jpeg, jxl,
     metadata::{Hdr, ImageMetadata},
     mime::{SNIFF_LEN, guess_mime, sniff_mime},
     png, webp,
@@ -112,20 +112,25 @@ fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageM
         _ => {
             let size = read_size(reader)?;
             reader.rewind()?;
-            let orientation = match mime {
-                "image/webp" => webp::probe::read_orientation(reader)?,
+            let (orientation, animated) = match mime {
+                "image/gif" => (1, gif::probe::read_animated(reader)?),
+                "image/webp" => {
+                    let extended = webp::probe::read_extended(reader)?;
+                    (extended.orientation, extended.animated)
+                }
                 "image/tiff" => {
                     let len = reader.seek(SeekFrom::End(0))?;
                     reader.rewind()?;
-                    exif::read_orientation(reader, len)?
+                    (exif::read_orientation(reader, len)?, false)
                 }
-                _ => 1,
+                _ => (1, false),
             };
             let (width, height) = upright(size, orientation);
             Ok(ImageMetadata {
                 width,
                 height,
                 hdr: Hdr::None,
+                animated,
             })
         }
     }

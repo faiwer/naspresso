@@ -1,5 +1,6 @@
-//! HEIF and AVIF: size, rotation and HDR kind from the `meta` box, which is read whole.
-//! The boxes before it are skipped. Encoders put `meta` near the start.
+//! HEIF and AVIF: size, rotation and HDR kind from the `meta` box, which is
+//! read whole; whether it's a sequence from the `ftyp` brands. The boxes before
+//! it are skipped. Encoders put `meta` near the start.
 
 use std::io::{self, BufReader, Read, Seek};
 
@@ -17,19 +18,43 @@ type BoxType = [u8; 4];
 
 /// Expects the reader at the start of the file.
 pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetadata> {
+    let mut animated = false;
     loop {
         let (kind, body_len) = box_header(reader)?;
-        if kind != *b"meta" {
-            skip(reader, body_len)?;
-            continue;
+        match &kind {
+            b"ftyp" if body_len <= MAX_META_LEN => {
+                let mut ftyp = vec![0; body_len as usize];
+                reader.read_exact(&mut ftyp)?;
+                animated = is_sequence(&ftyp);
+            }
+            b"meta" => {
+                if body_len > MAX_META_LEN {
+                    return Err(invalid_data("meta box too large"));
+                }
+                let mut meta = vec![0; body_len as usize];
+                reader.read_exact(&mut meta)?;
+                let mut image = parse_meta(&meta)
+                    .ok_or_else(|| invalid_data("no primary image size in meta"))?;
+                image.animated = animated;
+                return Ok(image);
+            }
+            _ => skip(reader, body_len)?,
         }
-        if body_len > MAX_META_LEN {
-            return Err(invalid_data("meta box too large"));
-        }
-        let mut meta = vec![0; body_len as usize];
-        reader.read_exact(&mut meta)?;
-        return parse_meta(&meta).ok_or_else(|| invalid_data("no primary image size in meta"));
     }
+}
+
+/// Whether the `ftyp` body names an image sequence brand: the major brand, a
+/// minor version, then the compatible brands.
+fn is_sequence(ftyp: &[u8]) -> bool {
+    const SEQUENCE_BRANDS: [&[u8; 4]; 3] = [b"avis", b"msf1", b"hevs"];
+    ftyp.get(..4)
+        .into_iter()
+        .chain(
+            ftyp.get(8..)
+                .into_iter()
+                .flat_map(|rest| rest.chunks_exact(4)),
+        )
+        .any(|brand| SEQUENCE_BRANDS.iter().any(|known| brand == *known))
 }
 
 /// The type and body length of the box at the reader.
@@ -119,7 +144,12 @@ fn parse_meta(meta: &[u8]) -> Option<ImageMetadata> {
             .map_or(Hdr::None, hdr_from_transfer)
     };
 
-    Some(ImageMetadata { width, height, hdr })
+    Some(ImageMetadata {
+        width,
+        height,
+        hdr,
+        animated: false,
+    })
 }
 
 /// The `(type, body)` of each box in `data`, up to the first malformed one.
@@ -331,8 +361,18 @@ mod tests {
     }
 
     #[test]
+    fn finds_sequence_brands() {
+        assert!(is_sequence(b"avis\0\0\0\0avifmif1"));
+        assert!(is_sequence(b"heic\0\0\0\0mif1msf1"));
+        assert!(!is_sequence(b"avif\0\0\0\0avifmif1miafMA1A"));
+        // The minor version isn't a brand.
+        assert!(!is_sequence(b"heicavismif1"));
+    }
+
+    #[test]
     fn reads_the_primary_size() {
         let meta = probe(Fixture::avif(vec![ispe(4032, 3024)]));
+        assert!(!meta.animated);
         assert_eq!((meta.width, meta.height, meta.hdr), (4032, 3024, Hdr::None));
     }
 

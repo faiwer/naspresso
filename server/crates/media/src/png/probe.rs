@@ -1,5 +1,5 @@
-//! PNG: size from IHDR, PQ or HLG from cICP, orientation from eXIf. All come
-//! before the image data.
+//! PNG: size from IHDR, PQ or HLG from cICP, orientation from eXIf, animation
+//! from acTL. All come before the image data.
 
 use std::io::{self, BufReader, Read, Seek};
 
@@ -33,6 +33,7 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
 
     let mut hdr = Hdr::None;
     let mut orientation = 1;
+    let mut animated = false;
     loop {
         let (len, kind) = chunk_header(reader)?;
         match &kind {
@@ -45,13 +46,23 @@ pub fn read<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<ImageMetada
                 orientation = read_orientation(reader, len)?;
                 skip(reader, CRC_LEN)?;
             }
+            b"acTL" if len >= 4 => {
+                // An APNG may have just the one frame.
+                animated = read_u32(reader)? > 1;
+                skip(reader, len - 4 + CRC_LEN)?;
+            }
             b"IDAT" | b"IEND" => break,
             _ => skip(reader, len + CRC_LEN)?,
         }
     }
 
     let (width, height) = upright((width, height), orientation);
-    Ok(ImageMetadata { width, height, hdr })
+    Ok(ImageMetadata {
+        width,
+        height,
+        hdr,
+        animated,
+    })
 }
 
 fn chunk_header(reader: &mut impl Read) -> io::Result<(u64, [u8; 4])> {
@@ -111,6 +122,17 @@ mod tests {
         let (mut reader, _) = page_reader(png(800, 600, &[pq, exif]));
         let meta = read(&mut reader).unwrap();
         assert_eq!((meta.width, meta.height, meta.hdr), (600, 800, Hdr::Pq));
+    }
+
+    #[test]
+    fn an_actl_of_frames_means_animated() {
+        let actl = |frames: u32| chunk(b"acTL", &[frames.to_be_bytes(), [0; 4]].concat());
+        let (mut reader, _) = page_reader(png(8, 8, &[actl(12)]));
+        assert!(read(&mut reader).unwrap().animated);
+        let (mut reader, _) = page_reader(png(8, 8, &[actl(1)]));
+        assert!(!read(&mut reader).unwrap().animated);
+        let (mut reader, _) = page_reader(png(8, 8, &[]));
+        assert!(!read(&mut reader).unwrap().animated);
     }
 
     #[test]
