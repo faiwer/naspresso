@@ -6,7 +6,7 @@ import {
 } from "@ant-design/icons";
 import { Segmented } from "antd";
 
-export type StorageViewMode = "list" | "masonry" | "table" | "thumbnails";
+import type { StorageViewMode } from "./viewMode";
 
 type StorageModeSwitchProps = {
   value: StorageViewMode;

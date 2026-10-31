@@ -7,12 +7,14 @@ import { Frame } from "../com/layout/Frame";
 import { Gap } from "../com/layout/Gap";
 import { PageTitle } from "../com/layout/PageTitle";
 import { StorageListing } from "../com/storage/StorageListing";
+import { StorageModeSwitch } from "../com/storage/StorageModeSwitch";
 import {
-  StorageModeSwitch,
-  type StorageViewMode,
-} from "../com/storage/StorageModeSwitch";
+  STORAGE_VIEW_MODE_KEY,
+  StorageViewModeSchema,
+} from "../com/storage/viewMode";
 import { joinPath } from "../core/helpers/path";
 import { useAsyncEffect } from "../core/hooks/useAsyncEffect";
+import { useLocalStorageState } from "../core/hooks/useLocalStorageState";
 import { parseStorageUrl, routes } from "../core/routes";
 
 import styles from "./StoragePage.module.css";
@@ -23,7 +25,11 @@ import styles from "./StoragePage.module.css";
 export const StoragePage = () => {
   const segments = parseStorageUrl(useLocation().pathname);
   const path = joinPath(segments);
-  const [mode, setMode] = useState<StorageViewMode>("thumbnails");
+  const [mode, setMode] = useLocalStorageState(
+    STORAGE_VIEW_MODE_KEY,
+    StorageViewModeSchema,
+    "thumbnails",
+  );
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(
     null,
   );

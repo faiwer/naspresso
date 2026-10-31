@@ -5,10 +5,10 @@ import { ErrorToast } from "../feedback/ErrorToast";
 import { ScrollSentinel } from "../layout/ScrollSentinel";
 import { StorageMasonry } from "./masonry/StorageMasonry";
 import { StorageList, type StorageViewProps } from "./StorageList";
-import type { StorageViewMode } from "./StorageModeSwitch";
 import { StorageTable } from "./StorageTable";
 import { StorageThumbnails } from "./StorageThumbnails";
 import { STORAGE_PAGE_SIZE, useStorageFeed } from "./useStorageFeed";
+import type { StorageViewMode } from "./viewMode";
 
 type StorageListingProps = {
   /** The listed directory as path segments; empty for the root. */
