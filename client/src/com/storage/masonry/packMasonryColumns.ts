@@ -42,10 +42,13 @@ export const shortestColumnIndex = (heights: number[]): number => {
   return best;
 };
 
-/** Image aspect, or 1 for folders and non-images. */
+/** Height / width of a folder or non-image tile (`aspect-ratio: 4 / 2`). */
+const MASONRY_ICON_ASPECT = 2 / 4;
+
+/** Image aspect, or 4:2 for folders and non-images. */
 export const masonryTileAspect = (entry: StorageEntry): number => {
   if (entry.kind === "file" && entry.image != null && entry.image.width > 0) {
     return entry.image.height / entry.image.width;
   }
-  return 1;
+  return MASONRY_ICON_ASPECT;
 };

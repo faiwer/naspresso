@@ -19,6 +19,7 @@ export const TilePreview = ({ entry, file, index }: TilePreviewProps) => {
     return (
       <div className={clsx(styles.icon, styles.folder)}>
         <FolderOpenFilled />
+        <span className={styles.name}>{entry.name}</span>
       </div>
     );
   }
@@ -26,6 +27,7 @@ export const TilePreview = ({ entry, file, index }: TilePreviewProps) => {
     return (
       <div className={clsx(styles.icon, styles.file)}>
         <FileFilled />
+        <span className={styles.name}>{entry.name}</span>
       </div>
     );
   }
