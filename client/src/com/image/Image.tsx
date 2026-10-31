@@ -99,17 +99,14 @@ export const Image = ({
         className,
       )}
     >
-      {enabled && src && (
+      {enabled && src && !outcome?.error && (
         <SrcImage
           key={src}
           src={src}
           alt={alt}
           loading={loading}
           clearSrcOnDestroy={clearSrcOnDestroy}
-          className={clsx(
-            styles.image,
-            outcome && !outcome.error && styles.ready,
-          )}
+          className={clsx(styles.image, outcome && styles.ready)}
           onLoad={(image) => {
             onLoad?.();
             // A failed decode() still leaves a loaded, paintable image.
@@ -130,7 +127,7 @@ export const Image = ({
           }}
         />
       )}
-      {enabled && src && ready?.src === src && ready?.error && (
+      {outcome?.error && (
         <img className={styles.error} src="/error.svg" alt="" />
       )}
     </div>

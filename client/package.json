@@ -11,14 +11,15 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
-    "format:check": "oxfmt --check"
+    "format:check": "oxfmt --check",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ant-design/icons": "6.3.4",
     "antd": "6.3.7",
     "camelcase-keys": "10.0.2",
     "clsx": "2.1.1",
-    "react": "npm:@faiwer/react@^19.0.13",
+    "react": "npm:@faiwer/react@^19.0.14",
     "react-dom": "npm:@faiwer/react-dom@^19.0.7",
     "react-router": "7.18.5",
     "snakecase-keys": "9.0.2",
@@ -26,9 +27,11 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^29.1.1",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
     "tsrs": "0.20.1-ts7.1.0-beta",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   }
 }

@@ -45,7 +45,7 @@ export const usePreviewJob = (
   );
 
   useAsyncEffect(() => {
-    if (hasPreview) {
+    if (!hasPreview) {
       return queue.attach(nullthrows(element.current), {
         id: filePath,
         index,
@@ -56,12 +56,12 @@ export const usePreviewJob = (
   return {
     enabled: snap.enabled,
     onLoad: useStableCallback(() => {
-      if (hasPreview) {
+      if (!hasPreview) {
         queue.settle(filePath, snap.attempt);
       }
     }),
     onError: useStableCallback(() => {
-      if (hasPreview) {
+      if (!hasPreview) {
         queue.settle(filePath, snap.attempt);
       }
     }),
