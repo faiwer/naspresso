@@ -15,7 +15,11 @@
 
 .item:hover {
   color: inherit;
-  background: var(--color-hover-bg);
+
+  .icon {
+    background: var(--color-hover-bg);
+    border-radius: 0.5rem;
+  }
 }
 
 .skeleton {
@@ -64,5 +68,5 @@
   line-clamp: 3;
   overflow-wrap: break-word;
   text-align: center;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }

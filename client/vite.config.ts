@@ -1,8 +1,9 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
+import svgr from "vite-plugin-svgr";
 
 export default defineConfig(({ command, mode }) => ({
-  plugins: [react()],
+  plugins: [react(), svgr({ svgrOptions: { icon: true } })],
   server:
     command === "serve"
       ? {
@@ -16,7 +17,9 @@ export default defineConfig(({ command, mode }) => ({
       : undefined,
 }));
 
-const SERVER_DIR = decodeURIComponent(new URL("../server", import.meta.url).pathname);
+const SERVER_DIR = decodeURIComponent(
+  new URL("../server", import.meta.url).pathname,
+);
 
 /** Reads the server's `HOST` and `PORT` the same way it does: env vars win over `server/.env`. */
 const getServerUrl = (mode: string): string => {
@@ -24,7 +27,9 @@ const getServerUrl = (mode: string): string => {
   const host = env.HOST?.trim();
   const port = env.PORT?.trim();
   if (!host || !port) {
-    throw new Error(`HOST and PORT must be set in ${SERVER_DIR}/.env or the environment`);
+    throw new Error(
+      `HOST and PORT must be set in ${SERVER_DIR}/.env or the environment`,
+    );
   }
 
   // `0.0.0.0` accepts connections on every interface but isn't an address you can connect to.
