@@ -1,6 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { rootFontSize } from "../../../core/helpers/browser";
+import {
+  PreviewQueueProvider,
+  usePreviewQueue,
+} from "../queue/usePreviewQueue";
 import type { StorageViewProps } from "../StorageList";
 import {
   MASONRY_GAP_PX,
@@ -18,7 +22,9 @@ export const StorageMasonry = ({
   segments,
   entries,
   skeletons,
+  scrollContainer,
 }: StorageViewProps) => {
+  const queue = usePreviewQueue(scrollContainer);
   const rootRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, rem: 16 });
 
@@ -49,9 +55,9 @@ export const StorageMasonry = ({
   const { columns, heights } = useMemo(
     () =>
       packMasonryColumns(
-        entries,
+        entries.map((entry, index) => ({ entry, index })),
         columnCount,
-        (entry) => masonryTileAspect(entry) * columnWidth + MASONRY_GAP_PX,
+        ({ entry }) => masonryTileAspect(entry) * columnWidth + MASONRY_GAP_PX,
       ),
     [entries, columnCount, columnWidth],
   );
@@ -63,21 +69,24 @@ export const StorageMasonry = ({
   );
 
   return (
-    <div ref={rootRef} className={styles.root}>
-      {columns.map((column, col) => (
-        <div key={col} className={styles.column}>
-          {column.map((entry) => (
-            <Tile
-              key={entry.name}
-              entry={entry}
-              segments={[...segments, entry.name]}
-            />
-          ))}
-          {(skeletonSlots[col] ?? []).map((index) => (
-            <MasonrySkeleton key={`skeleton-${index}`} index={index} />
-          ))}
-        </div>
-      ))}
-    </div>
+    <PreviewQueueProvider queue={queue}>
+      <div ref={rootRef} className={styles.root}>
+        {columns.map((column, col) => (
+          <div key={col} className={styles.column}>
+            {column.map(({ entry, index }) => (
+              <Tile
+                key={entry.name}
+                entry={entry}
+                index={index}
+                segments={[...segments, entry.name]}
+              />
+            ))}
+            {(skeletonSlots[col] ?? []).map((index) => (
+              <MasonrySkeleton key={`skeleton-${index}`} index={index} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </PreviewQueueProvider>
   );
 };

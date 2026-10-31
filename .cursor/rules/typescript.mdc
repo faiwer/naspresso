@@ -14,10 +14,15 @@ alwaysApply: false
   that component, even when the type isn't exported.
 - Always brace `if` / `for` / `while` bodies, including early returns.
 - Functions are verbs (`parseStorageUrl`); components are nouns.
+- A direct mapping is a `Record`:
+  `const zoneRank: Record<Zone, number> = { visible: 0, … }`. Use a
+  function when the result is computed, not looked up.
 - API functions start with `get` / `fetch` / `create` / … (`getHealth`,
   `getListStorage`), not a bare Rust-style verb like `listStorage`.
 - Components and one-expression helpers are arrow functions:
   `export const StoragePage = () => { … }`.
+- A one-statement arrow whose result must be discarded can use `void` and
+  stay an expression: `() => void map.delete(id)`.
 - `null` for "no value", not `undefined`. Use `== null` / truthiness checks
   unless `null` and `undefined` genuinely mean different things.
 - No `!` non-null assertions to appease the checker — restructure instead.
@@ -49,17 +54,36 @@ alwaysApply: false
   newer APIs (`use`, `useOptimistic`, …): check before relying on one.
   Third-party React libraries are pinned to versions already proven in
   `~/cu/tengri-xc/client`.
+- Every component is memoized by default (`memo` is not in the API). A child
+  re-renders when a prop fails `Object.is`.
 - Loading data: `useAsyncData((signal) => apiFn(…, { signal }), deps)` from
   `core/hooks`. Other async effects: `useAsyncEffect`. Both own the
   `AbortController`; don't hand-roll `useEffect` + `.then`.
 - Deps of those hooks aren't linted: list what should re-run the effect,
   not everything the closure reads.
+- Never list a ref in an effect dependency array. A ref is not reactive, so
+  `.current` changing does not re-run the effect. Read `.current` inside
+  `useAsyncEffect`: its deps aren't linted, so the ref is not demanded.
+- When the ref is attached on every render, an effect sees `.current` set.
+  Pass it through `nullthrows` (`core/helpers/nullthrows`). When the node
+  renders only under a condition, store the element in `useState`: state
+  updates re-run the effect as the node mounts and unmounts.
+- Suffix a hook with `X` when `nullthrows` is inside it, so the result is
+  never `null`. Leave the suffix off when the value is optional and `null`
+  is a real result.
+- A context and the hooks that read it share one file. `PreviewQueueContext`
+  and `usePreviewQueueContextX` both live in `context.ts`.
 - Errors nobody handles go to `trackError` (`core/errors`), not `console`.
 - No reflexive `useCallback` / `useMemo`.
 - Conditional or combined class names go through `clsx`:
   `clsx(styles.root, active && styles.active, className)`, not template
   strings or `[…].filter(Boolean).join(" ")`.
 - Pages live in `pages/`, routes are declared in `App.tsx`.
+- Use `tsx` extension for every file that might contain React nodes.
+- Do not keep in one .tsx files too much code. Instead move medium+-sized
+  subcomponents into separate files.
+- If the new component would take 200+ LoC of TSX code consider creating a
+  separate folder for it.
 
 ## Checks
 

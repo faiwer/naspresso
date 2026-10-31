@@ -44,4 +44,6 @@ export type StorageViewProps = {
   entries: StorageEntry[];
   /** Placeholders to show after `entries` while more of them load. */
   skeletons: number;
+  /** The element the listing scrolls in. Preview modes observe it. */
+  scrollContainer: HTMLElement;
 };

@@ -37,7 +37,12 @@ export const StorageListing = ({
 
   return (
     <>
-      <View segments={segments} entries={feed.items} skeletons={skeletons} />
+      <View
+        segments={segments}
+        entries={feed.items}
+        skeletons={skeletons}
+        scrollContainer={scrollContainer}
+      />
       {feed.error && <ErrorToast error={feed.error} onRetry={feed.retry} />}
       {/* Unmounted while a page loads, so each page gets a fresh observer. */}
       {feed.canLoadMore && (

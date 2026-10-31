@@ -37,6 +37,8 @@ export const StorageFileIo = StorageEntryBaseIo.extend({
   mime: z.string(),
   /** `null` for non-images and for images whose headers couldn't be read. */
   image: ImageMetadataIo.nullable(),
+  /** Previews of this version are cached, so asking for one won't wait for a render. */
+  hasPreview: z.boolean(),
 });
 
 /** One entry of `GET /storage/ls`. */

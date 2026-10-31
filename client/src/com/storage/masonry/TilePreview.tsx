@@ -10,9 +10,11 @@ type TilePreviewProps = {
   entry: StorageEntry;
   /** The entry's path, like `/a/b/c.jpg`. */
   file: string;
+  /** Position in the feed. */
+  index: number;
 };
 
-export const TilePreview = ({ entry, file }: TilePreviewProps) => {
+export const TilePreview = ({ entry, file, index }: TilePreviewProps) => {
   if (entry.kind === "dir") {
     return (
       <div className={clsx(styles.icon, styles.folder)}>
@@ -27,5 +29,13 @@ export const TilePreview = ({ entry, file }: TilePreviewProps) => {
       </div>
     );
   }
-  return <ImagePreview file={file} image={entry.image} alt={entry.name} />;
+  return (
+    <ImagePreview
+      file={file}
+      image={entry.image}
+      alt={entry.name}
+      index={index}
+      hasPreview={entry.hasPreview}
+    />
+  );
 };

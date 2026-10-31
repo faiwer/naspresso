@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { trackError } from "../../core/errors/trackError";
 import { useMemoValue } from "../../core/hooks/useMemoValue";
 import { pickSource } from "./pickSource";
+import { SrcImage } from "./SrcImage";
 
 import styles from "./Image.module.css";
 
@@ -20,8 +21,26 @@ type ImageProps = {
   /** The same image in different sizes. */
   srcSet: ImageSource[];
   loading?: "lazy" | "eager";
+  /** When false, the <div/> stays and no request is made. */
+  enabled?: boolean;
+  /**
+   * On unmount, remove the `src` attribute so Chrome and Firefox abort the
+   * HTTP request. `src = ""` aborts them too, but an empty source fires
+   * `error`. Removing the attribute does not.
+   *
+   * `remove()` alone does not abort. Chrome, Firefox, and Safari keep
+   * reading a disconnected `<img>` to the end. Clearing `src` still aborts
+   * Chrome and Firefox after the node is disconnected. Safari finishes the
+   * body either way, and then fires neither `load` nor `error`.
+   *
+   * The abort matters because the server queues preview creation. If that
+   * work has not started, the disconnect can cancel it, so the server
+   * spends its slots on the previews still on screen.
+   */
+  clearSrcOnDestroy?: boolean;
   alt?: string;
   className?: string;
+  onLoad?: () => void;
   onError?: () => void;
 };
 
@@ -35,8 +54,11 @@ export const Image = ({
   height,
   srcSet,
   loading,
+  enabled = true,
+  clearSrcOnDestroy = true,
   alt = "",
   className,
+  onLoad,
   onError,
 }: ImageProps) => {
   const stableSrcSet = useMemoValue(srcSet);
@@ -50,7 +72,7 @@ export const Image = ({
 
   useLayoutEffect(() => {
     const root = rootRef.current;
-    if (!root) {
+    if (!enabled || !root) {
       return;
     }
 
@@ -63,9 +85,9 @@ export const Image = ({
         window.devicePixelRatio,
       ),
     );
-  }, [stableSrcSet, width, height]);
+  }, [enabled, stableSrcSet, width, height]);
 
-  const outcome = !!src && ready?.src === src ? ready : null;
+  const outcome = enabled && !!src && ready?.src === src ? ready : null;
 
   return (
     <div
@@ -77,20 +99,21 @@ export const Image = ({
         className,
       )}
     >
-      {src && (
-        <img
+      {enabled && src && (
+        <SrcImage
           key={src}
+          src={src}
+          alt={alt}
+          loading={loading}
+          clearSrcOnDestroy={clearSrcOnDestroy}
           className={clsx(
             styles.image,
             outcome && !outcome.error && styles.ready,
           )}
-          src={src}
-          alt={alt}
-          loading={loading}
-          decoding="async"
-          onLoad={(event) => {
+          onLoad={(image) => {
+            onLoad?.();
             // A failed decode() still leaves a loaded, paintable image.
-            void (event.currentTarget as HTMLImageElement)
+            void image
               .decode()
               .catch((err: unknown) => {
                 trackError(err, {
@@ -102,12 +125,12 @@ export const Image = ({
               .then(() => setReady({ ready: true, src, error: false }));
           }}
           onError={() => {
-            setReady({ ready: false, src, error: true });
             onError?.();
+            setReady({ ready: false, src, error: true });
           }}
         />
       )}
-      {src && ready?.src === src && ready?.error && (
+      {enabled && src && ready?.src === src && ready?.error && (
         <img className={styles.error} src="/error.svg" alt="" />
       )}
     </div>

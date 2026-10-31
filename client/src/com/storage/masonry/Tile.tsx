@@ -12,10 +12,14 @@ type TileProps = {
   entry: StorageEntry;
   /** The entry's own path. */
   segments: string[];
+  /** Position in the feed. */
+  index: number;
 };
 
-export const Tile = ({ entry, segments }: TileProps) => {
-  const preview = <TilePreview entry={entry} file={joinPath(segments)} />;
+export const Tile = ({ entry, segments, index }: TileProps) => {
+  const preview = (
+    <TilePreview entry={entry} file={joinPath(segments)} index={index} />
+  );
 
   if (entry.kind === "dir") {
     return (
