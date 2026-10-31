@@ -1,4 +1,4 @@
-import { FileFilled, FolderOpenFilled } from "@ant-design/icons";
+import { FolderOpenFilled } from "@ant-design/icons";
 import { Skeleton } from "antd";
 import { useRef, type CSSProperties } from "react";
 import { Link } from "react-router";
@@ -9,6 +9,7 @@ import type { ImageMetadata, StorageEntry } from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
 import { joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
+import { FileIcon } from "../fileIcon/FileIcon";
 import { Image } from "../image/Image";
 import { usePreviewJob } from "./queue/usePreviewJob";
 import { PreviewQueueProvider, usePreviewQueue } from "./queue/usePreviewQueue";
@@ -100,7 +101,7 @@ const ThumbnailPreview = ({ entry, file, index }: ThumbnailPreviewProps) => {
   if (!entry.image) {
     return (
       <div className={`${styles.icon} ${styles.file}`}>
-        <FileFilled />
+        <FileIcon mime={entry.mime} />
       </div>
     );
   }

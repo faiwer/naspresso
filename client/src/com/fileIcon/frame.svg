@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <clipPath id="pageRadius67">
+      <rect x="4" y="0" rx="4" ry="4" width="40" height="48"></rect>
+    </clipPath>
+    <clipPath id="foldCrop">
+      <rect width="40" height="12" transform="rotate(-45 0 12)"></rect>
+    </clipPath>
+    <linearGradient x1="100%" y1="0%" y2="100%" id="pageGradient67">
+      <stop stop-color="white" stop-opacity="0.25" offset="0%"></stop>
+      <stop stop-color="white" stop-opacity="0" offset="66.67%"></stop>
+    </linearGradient>
+  </defs>
+  <g id="file" clip-path="url(#pageRadius67)">
+    <path d="M4 0 h 28 L 44 12 v 36 H 4 Z" fill="whitesmoke"></path>
+    <path d="M4 0 h 28 L 44 12 v 36 H 4 Z" fill="url(#pageGradient67)"></path>
+  </g>
+  <g transform="translate(32 12) rotate(-90)">
+    <rect width="40" height="48" fill="#dbdbdb" rx="4" ry="4" clip-path="url(#foldCrop)"></rect>
+  </g>
+</svg>

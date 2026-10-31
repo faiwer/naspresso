@@ -1,7 +1,8 @@
-import { FileFilled, FolderOpenFilled } from "@ant-design/icons";
+import { FolderOpenFilled } from "@ant-design/icons";
 import clsx from "clsx";
 
 import type { StorageEntry } from "../../../api/storage.io";
+import { FileIcon } from "../../fileIcon/FileIcon";
 import { ImagePreview } from "./ImagePreview";
 
 import styles from "./StorageMasonry.module.css";
@@ -26,7 +27,7 @@ export const TilePreview = ({ entry, file, index }: TilePreviewProps) => {
   if (!entry.image) {
     return (
       <div className={clsx(styles.icon, styles.file)}>
-        <FileFilled />
+        <FileIcon mime={entry.mime} />
         <span className={styles.name}>{entry.name}</span>
       </div>
     );
