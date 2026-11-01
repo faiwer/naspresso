@@ -37,9 +37,10 @@ impl EntryKey {
 }
 
 /// Up to `limit` entries of `dir` in listing order, starting after `after`.
-/// Symlinks, special files and names that aren't UTF-8 are skipped. `after`
-/// doesn't have to exist anymore. `has_preview` is asked about image files,
-/// with their path and modification time, and may block.
+/// Symlinks, special files, names that aren't UTF-8, and OS metadata files
+/// (`.DS_Store`, `.apdisk`, `Thumbs.db`) are skipped. `after` doesn't have to
+/// exist anymore. `has_preview` is asked about image files, with their path
+/// and modification time, and may block.
 pub async fn list_dir(
     dir: &Path,
     after: Option<EntryKey>,
@@ -72,6 +73,10 @@ impl SortKey {
 }
 
 type HasPreview = dyn Fn(&Path, SystemTime) -> bool;
+
+fn is_os_metadata(name: &str) -> bool {
+    matches!(name, ".DS_Store" | ".apdisk" | "Thumbs.db")
+}
 
 fn list_dir_blocking(
     dir: &Path,
@@ -122,6 +127,10 @@ fn read_keys(dir: &Path) -> Result<Vec<SortKey>, StorageError> {
                 continue;
             }
         };
+        // Finder and Explorer write these beside real files; they hold no user content.
+        if is_os_metadata(&name) {
+            continue;
+        }
         // Comes with the directory read on most filesystems, so no `stat`. Doesn't
         // follow symlinks: a link reports as a symlink, so it's skipped below.
         let file_type = match dir_entry.file_type() {
@@ -309,6 +318,21 @@ mod tests {
 
         let page = list(&tmp.0, None, 2).unwrap();
         assert_eq!(names(&page.entries), ["a", "b"]);
+        assert!(!page.has_more);
+    }
+
+    #[test]
+    fn skips_os_metadata_files() {
+        let tmp = TempDir::new("metadata");
+        tmp.file(".DS_Store")
+            .file(".apdisk")
+            .file("Thumbs.db")
+            .file(".gitignore")
+            .file("photo.jpg");
+
+        let page = list(&tmp.0, None, 100).unwrap();
+        assert_eq!(names(&page.entries), [".gitignore", "photo.jpg"]);
+        assert_eq!(page.total, 2);
         assert!(!page.has_more);
     }
 
