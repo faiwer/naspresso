@@ -2,6 +2,7 @@ import { FolderOpenFilled } from "@ant-design/icons";
 import clsx from "clsx";
 
 import type { StorageEntry } from "../../../api/storage.io";
+import { getExtension } from "../../../core/helpers/path";
 import { FileIcon } from "../../fileIcon/FileIcon";
 import { ImagePreview } from "./ImagePreview";
 
@@ -27,7 +28,7 @@ export const TilePreview = ({ entry, file, index }: TilePreviewProps) => {
   if (!entry.image) {
     return (
       <div className={clsx(styles.icon, styles.file)}>
-        <FileIcon mime={entry.mime} />
+        <FileIcon mime={entry.mime} ext={getExtension(entry.name)} />
         <span className={styles.name}>{entry.name}</span>
       </div>
     );

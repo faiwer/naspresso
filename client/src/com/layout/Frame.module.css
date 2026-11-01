@@ -4,6 +4,7 @@
   box-sizing: border-box;
   height: 100%;
   padding: var(--gutter);
+  font-family: system-ui;
 }
 
 @media (max-width: 61rem) {

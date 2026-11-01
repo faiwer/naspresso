@@ -7,7 +7,7 @@ import { getPreviewSrcSet } from "../../api/media";
 import { getFileUrl } from "../../api/storage";
 import type { ImageMetadata, StorageEntry } from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
-import { joinPath } from "../../core/helpers/path";
+import { getExtension, joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
 import { FileIcon } from "../fileIcon/FileIcon";
 import { Image } from "../image/Image";
@@ -101,7 +101,7 @@ const ThumbnailPreview = ({ entry, file, index }: ThumbnailPreviewProps) => {
   if (!entry.image) {
     return (
       <div className={`${styles.icon} ${styles.file}`}>
-        <FileIcon mime={entry.mime} />
+        <FileIcon mime={entry.mime} ext={getExtension(entry.name)} />
       </div>
     );
   }

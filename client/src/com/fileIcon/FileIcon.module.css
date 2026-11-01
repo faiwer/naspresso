@@ -19,4 +19,27 @@
   left: 50%;
   font-size: 0.5em;
   transform: translate(-50%, -35%);
+  filter: brightness(0.9);
+
+  .labeled & {
+    transform: translate(-50%, -60%);
+    font-size: 0.4em;
+  }
+}
+
+.ext {
+  position: absolute;
+  right: 12%;
+  bottom: 0.1rem;
+  left: 12%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 29%;
+  color: #fff;
+  font-size: 0.2em;
+  font-weight: 500;
+  font-family: system-ui;
+  line-height: 1;
+  text-transform: uppercase;
 }

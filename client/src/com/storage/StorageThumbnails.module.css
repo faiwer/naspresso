@@ -57,6 +57,10 @@
 
 .file {
   color: var(--color-file);
+
+  &:hover {
+    color: var(--color-file-hover);
+  }
 }
 
 .name {
