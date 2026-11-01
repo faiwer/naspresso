@@ -1,8 +1,9 @@
-import { AlignCenterOutlined } from "@ant-design/icons";
 import type { ReactNode } from "react";
 
 import BinaryIcon from "../icons/binary.svg?react";
 import MountainIcon from "../icons/mountain.svg?react";
+import TextIcon from "../icons/text.svg?react";
+import WaveIcon from "../icons/wave.svg?react";
 import ZipperIcon from "../icons/zipper.svg?react";
 
 /** The antd glyph for a mime. Unlisted types share one icon for now. */
@@ -22,7 +23,11 @@ export const getMimeIcon = (mime: string, className?: string): ReactNode => {
   }
 
   if (mime.startsWith("text/")) {
-    Icon = AlignCenterOutlined;
+    Icon = TextIcon;
+  }
+
+  if (mime.startsWith("audio/")) {
+    Icon = WaveIcon;
   }
 
   return <Icon className={className} />;

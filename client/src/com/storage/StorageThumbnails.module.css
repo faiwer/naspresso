@@ -58,7 +58,7 @@
 .file {
   color: var(--color-file);
 
-  &:hover {
+  .item:hover & {
     color: var(--color-file-hover);
   }
 }
