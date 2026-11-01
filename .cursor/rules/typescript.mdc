@@ -1,7 +1,7 @@
 ---
 description: TypeScript and React conventions for the client — style, API layer, effects, @faiwer/react
 globs: client/**/*.{ts,tsx}
-alwaysApply: false
+alwaysApply: true
 ---
 
 # TypeScript & React conventions (client)
