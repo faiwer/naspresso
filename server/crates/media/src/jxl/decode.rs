@@ -93,7 +93,9 @@ fn rgb<S: FrameBufferSample + Copy>(
         1 => (samples.iter().flat_map(|&v| [v; 3]).collect(), rgb),
         2 => (
             samples
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .flat_map(|px| [px[0], px[0], px[0], px[1]])
                 .collect(),
             rgba,

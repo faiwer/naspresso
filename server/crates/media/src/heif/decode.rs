@@ -371,7 +371,9 @@ fn with_alpha(rgb: Samples, alpha: &Samples) -> Samples {
     let (max, alpha_max) = (u32::from(rgb.max), u32::from(alpha.max));
     let values = rgb
         .values
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .zip(&alpha.values)
         .flat_map(|(px, &a)| {
             let a = (u32::from(a) * max + alpha_max / 2) / alpha_max;

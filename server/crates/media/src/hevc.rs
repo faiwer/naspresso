@@ -61,7 +61,9 @@ fn to_yuv(image: &Image) -> Result<Yuv, DecodeError> {
             (Plane::Narrow(bytes.to_vec()), stride as u32)
         } else {
             let values = bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_ne_bytes([pair[0], pair[1]]))
                 .collect();
             (Plane::Wide(values), stride as u32 / 2)

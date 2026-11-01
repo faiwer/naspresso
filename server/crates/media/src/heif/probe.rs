@@ -52,7 +52,7 @@ fn is_sequence(ftyp: &[u8]) -> bool {
         .chain(
             ftyp.get(8..)
                 .into_iter()
-                .flat_map(|rest| rest.chunks_exact(4)),
+                .flat_map(|rest| rest.as_chunks::<4>().0.iter().map(|brand| brand.as_slice())),
         )
         .any(|brand| SEQUENCE_BRANDS.iter().any(|known| brand == *known))
 }

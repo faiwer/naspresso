@@ -128,7 +128,7 @@ fn parse_fixed(fixed: &[u8; FIXED_LEN], fingerprint: &str) -> Option<usize> {
 fn locate(table: &[u8], size: PreviewSize, file_len: u64) -> Option<(u64, u64)> {
     let mut offset = (FIXED_LEN + table.len()) as u64;
     let mut found = None;
-    for entry in table.chunks_exact(ENTRY_LEN) {
+    for entry in table.as_chunks::<ENTRY_LEN>().0 {
         let side = u16::from_le_bytes([entry[0], entry[1]]);
         let len = u64::from(u32::from_le_bytes([entry[2], entry[3], entry[4], entry[5]]));
         if u32::from(side) == size.px() {

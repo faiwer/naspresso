@@ -114,7 +114,9 @@ mod tests {
     fn samples(image: &Image) -> Vec<u16> {
         image
             .buffer()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|v| u16::from_ne_bytes([v[0], v[1]]))
             .collect()
     }

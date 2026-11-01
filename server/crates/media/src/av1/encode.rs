@@ -43,7 +43,9 @@ pub fn encode(image: &Image, quality: f32, speed: u8) -> Result<Av1Image, Encode
     match image.pixel_type() {
         PixelType::U8x3 => {
             let pixels: Vec<_> = buffer
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|px| to_ycbcr([px[0], px[1], px[2]].map(|v| f32::from(v) / 255.), BT601))
                 .collect();
             let color = ColorDescription {
@@ -72,7 +74,9 @@ pub fn encode_pq(image: &Image, quality: f32, speed: u8) -> Result<Av1Image, Enc
     }
     let pixels: Vec<_> = image
         .buffer()
-        .chunks_exact(6)
+        .as_chunks::<6>()
+        .0
+        .iter()
         .map(|px| {
             let sample = |i: usize| f32::from(u16::from_ne_bytes([px[i], px[i + 1]])) / 65535.;
             to_ycbcr([sample(0), sample(2), sample(4)], BT2020)
@@ -93,7 +97,9 @@ pub fn encode_alpha(image: &Image, quality: f32, speed: u8) -> Result<Av1Image, 
         PixelType::U8 => image.buffer().iter().map(|&v| [to_10_bit(v)]).collect(),
         PixelType::U16 => image
             .buffer()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|v| [(f32::from(u16::from_ne_bytes([v[0], v[1]])) * MAX / 65535.).round() as u16])
             .collect(),
         pixel_type => {
