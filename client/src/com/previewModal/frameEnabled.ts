@@ -2,8 +2,7 @@ export type FrameSide = "left" | "center" | "right";
 
 /**
  * Center first, then the right neighbor, then the left. `promoted` is the
- * neighbor sliding into the center, so it loads immediately; callers pass
- * `null` until that swipe exists.
+ * neighbor sliding into the center, so it loads immediately.
  */
 export const isFrameEnabled = (
   side: FrameSide,

@@ -10,6 +10,7 @@ import { nullthrows } from "../../core/helpers/nullthrows";
 import { updateIfChanged } from "../../core/helpers/object";
 import type { PreviewSession } from "./context";
 import { PreviewStrip } from "./PreviewStrip";
+import { usePreviewSwipe } from "./swipe/usePreviewSwipe";
 
 import styles from "./PreviewModal.module.css";
 
@@ -18,11 +19,13 @@ type PreviewModalProps = {
   onClose: () => void;
 };
 
-/** Full-screen preview of the original file at `session.pos`. */
+/** Full-screen preview of one image from `session`. */
 export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const file = nullthrows(session.files[session.pos]);
   const [viewport, setViewport] = useState<Viewport | null>(null);
+  const [pos, setPos] = useState(session.pos);
+  const swipe = usePreviewSwipe(session.files, pos, setPos, viewport);
+  const file = nullthrows(session.files[pos]);
 
   useLayoutEffect(() => {
     const dialog = nullthrows(dialogRef.current);
@@ -72,6 +75,15 @@ export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
           ),
         )}
         className={styles.viewport}
+        onPointerDown={swipe.onPointerDown}
+        onPointerMove={swipe.onPointerMove}
+        onPointerUp={swipe.onPointerUp}
+        onPointerCancel={swipe.onPointerCancel}
+        onContextmenu={(event) => {
+          if (event.target === event.currentTarget) {
+            event.preventDefault();
+          }
+        }}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
             onClose();
@@ -81,9 +93,15 @@ export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
         {viewport && (
           <PreviewStrip
             files={session.files}
-            pos={session.pos}
+            pos={pos}
             segments={session.segments}
             viewport={viewport}
+            translateX={swipe.translateX}
+            settling={swipe.settling}
+            promoted={swipe.promoted}
+            downloaded={swipe.downloaded}
+            onDownloaded={swipe.markDownloaded}
+            onSettled={swipe.onSettled}
           />
         )}
       </div>
