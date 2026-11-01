@@ -2,14 +2,17 @@ import { Skeleton } from "antd";
 import { Link } from "react-router";
 
 import { getEntryFileUrl } from "../../api/storage";
-import type { StorageEntry } from "../../api/storage.io";
+import type { StorageEntry, StorageFile } from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
 import { routes } from "../../core/routes";
+import { StorageFileLink } from "./StorageFileLink";
+import { isPreviewImage } from "./useOpenStorageImage";
 
 export const StorageList = ({
   segments,
   entries,
   skeletons,
+  openImage,
 }: StorageViewProps) => (
   <ol>
     {entries.map((entry) => (
@@ -19,13 +22,12 @@ export const StorageList = ({
             {entry.name}
           </Link>
         ) : (
-          <a
+          <StorageFileLink
             href={getEntryFileUrl(segments, entry.name)}
-            target="_blank"
-            rel="noreferrer"
+            onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
           >
             {entry.name}
-          </a>
+          </StorageFileLink>
         )}
       </li>
     ))}
@@ -46,4 +48,6 @@ export type StorageViewProps = {
   skeletons: number;
   /** The element the listing scrolls in. Preview modes observe it. */
   scrollContainer: HTMLElement;
+  /** Opens an image in the preview modal, among the images in `entries`. */
+  openImage: (file: StorageFile) => void;
 };

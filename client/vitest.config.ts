@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [react(), svgr({ svgrOptions: { icon: true } })],
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 });

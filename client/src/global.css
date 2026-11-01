@@ -13,6 +13,7 @@
   --color-file: #dbdbdb;
   --color-file-hover: #c0c0c0;
   --color-background-secondary: #f8f8f8;
+  --color-overlay: rgb(40 40 40 / 80%);
 }
 
 html,

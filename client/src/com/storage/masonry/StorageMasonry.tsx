@@ -23,6 +23,7 @@ export const StorageMasonry = ({
   entries,
   skeletons,
   scrollContainer,
+  openImage,
 }: StorageViewProps) => {
   const queue = usePreviewQueue(scrollContainer);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -79,6 +80,7 @@ export const StorageMasonry = ({
                 entry={entry}
                 index={index}
                 segments={[...segments, entry.name]}
+                openImage={openImage}
               />
             ))}
             {(skeletonSlots[col] ?? []).map((index) => (

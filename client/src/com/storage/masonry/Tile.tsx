@@ -1,9 +1,11 @@
 import { Link } from "react-router";
 
 import { getFileUrl } from "../../../api/storage";
-import type { StorageEntry } from "../../../api/storage.io";
+import type { StorageEntry, StorageFile } from "../../../api/storage.io";
 import { joinPath } from "../../../core/helpers/path";
 import { routes } from "../../../core/routes";
+import { StorageFileLink } from "../StorageFileLink";
+import { isPreviewImage } from "../useOpenStorageImage";
 import { TilePreview } from "./TilePreview";
 
 import styles from "./StorageMasonry.module.css";
@@ -14,9 +16,11 @@ type TileProps = {
   segments: string[];
   /** Position in the feed. */
   index: number;
+  /** Opens an image in the preview modal. */
+  openImage: (file: StorageFile) => void;
 };
 
-export const Tile = ({ entry, segments, index }: TileProps) => {
+export const Tile = ({ entry, segments, index, openImage }: TileProps) => {
   const preview = (
     <TilePreview entry={entry} file={joinPath(segments)} index={index} />
   );
@@ -33,14 +37,13 @@ export const Tile = ({ entry, segments, index }: TileProps) => {
     );
   }
   return (
-    <a
+    <StorageFileLink
       className={styles.item}
       href={getFileUrl(joinPath(segments))}
-      target="_blank"
-      rel="noreferrer"
       title={entry.name}
+      onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
       {preview}
-    </a>
+    </StorageFileLink>
   );
 };

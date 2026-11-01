@@ -85,6 +85,13 @@ alwaysApply: false
 - If the new component would take 200+ LoC of TSX code consider creating a
   separate folder for it.
 
+## Keyboard
+
+- Read a shortcut with `formatKeyChord` (`core/helpers/keyboard`), not
+  `event.key`. Modifiers come first, in the order `ctrl`, `alt`, `cmd`,
+  `shift`, then the key: `Escape`, `ctrl-A`, `cmd-shift-A`. A letter is
+  uppercase, and Space is `Space`. `ctrl-Escape` is not `Escape`.
+
 ## Checks
 
 `npm run typecheck` (tsrs), `npx --no -- oxlint --deny-warnings client` and

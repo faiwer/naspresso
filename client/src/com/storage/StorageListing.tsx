@@ -7,6 +7,7 @@ import { StorageMasonry } from "./masonry/StorageMasonry";
 import { StorageList, type StorageViewProps } from "./StorageList";
 import { StorageTable } from "./StorageTable";
 import { StorageThumbnails } from "./StorageThumbnails";
+import { useOpenStorageImage } from "./useOpenStorageImage";
 import { STORAGE_PAGE_SIZE, useStorageFeed } from "./useStorageFeed";
 import type { StorageViewMode } from "./viewMode";
 
@@ -28,6 +29,7 @@ export const StorageListing = ({
   scrollContainer,
 }: StorageListingProps) => {
   const feed = useStorageFeed(joinPath(segments));
+  const openImage = useOpenStorageImage(segments, feed.items);
   const View = VIEWS[mode];
   const skeletons = !feed.isLoading
     ? 0
@@ -42,6 +44,7 @@ export const StorageListing = ({
         entries={feed.items}
         skeletons={skeletons}
         scrollContainer={scrollContainer}
+        openImage={openImage}
       />
       {feed.error && <ErrorToast error={feed.error} onRetry={feed.retry} />}
       {/* Unmounted while a page loads, so each page gets a fresh observer. */}

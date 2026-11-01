@@ -5,7 +5,11 @@ import { Link } from "react-router";
 
 import { getPreviewSrcSet } from "../../api/media";
 import { getFileUrl } from "../../api/storage";
-import type { ImageMetadata, StorageEntry } from "../../api/storage.io";
+import type {
+  ImageMetadata,
+  StorageEntry,
+  StorageFile,
+} from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
 import { getExtension, joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
@@ -13,7 +17,9 @@ import { FileIcon } from "../fileIcon/FileIcon";
 import { Image } from "../image/Image";
 import { usePreviewJob } from "./queue/usePreviewJob";
 import { PreviewQueueProvider, usePreviewQueue } from "./queue/usePreviewQueue";
+import { StorageFileLink } from "./StorageFileLink";
 import type { StorageViewProps } from "./StorageList";
+import { isPreviewImage } from "./useOpenStorageImage";
 
 import styles from "./StorageThumbnails.module.css";
 
@@ -22,6 +28,7 @@ export const StorageThumbnails = ({
   entries,
   skeletons,
   scrollContainer,
+  openImage,
 }: StorageViewProps) => {
   const queue = usePreviewQueue(scrollContainer);
   return (
@@ -33,6 +40,7 @@ export const StorageThumbnails = ({
             entry={entry}
             index={index}
             segments={[...segments, entry.name]}
+            openImage={openImage}
           />
         ))}
         {range(skeletons).map((index) => (
@@ -49,9 +57,11 @@ type ThumbnailProps = {
   segments: string[];
   /** Position in the feed. */
   index: number;
+  /** Opens an image in the preview modal. */
+  openImage: (file: StorageFile) => void;
 };
 
-const Thumbnail = ({ entry, segments, index }: ThumbnailProps) => {
+const Thumbnail = ({ entry, segments, index, openImage }: ThumbnailProps) => {
   const { name } = entry;
   const content = (
     <>
@@ -70,14 +80,13 @@ const Thumbnail = ({ entry, segments, index }: ThumbnailProps) => {
     );
   }
   return (
-    <a
+    <StorageFileLink
       className={styles.item}
       href={getFileUrl(joinPath(segments))}
-      target="_blank"
-      rel="noreferrer"
+      onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
       {content}
-    </a>
+    </StorageFileLink>
   );
 };
 

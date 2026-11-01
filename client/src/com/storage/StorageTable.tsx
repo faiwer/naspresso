@@ -6,7 +6,9 @@ import { range } from "../../core/helpers/array";
 import { formatDateTime } from "../../core/helpers/date";
 import { getExtension } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
+import { StorageFileLink } from "./StorageFileLink";
 import type { StorageViewProps } from "./StorageList";
+import { isPreviewImage } from "./useOpenStorageImage";
 
 import styles from "./StorageTable.module.css";
 
@@ -14,6 +16,7 @@ export const StorageTable = ({
   segments,
   entries,
   skeletons,
+  openImage,
 }: StorageViewProps) => {
   const rows: Row[] = entries.map((entry) => ({
     key: entry.name,
@@ -23,6 +26,7 @@ export const StorageTable = ({
     createdAt: entry.createdAt,
     to: entry.kind === "dir" ? routes.storage([...segments, entry.name]) : null,
     href: entry.kind === "file" ? getEntryFileUrl(segments, entry.name) : null,
+    onPreview: isPreviewImage(entry) ? () => openImage(entry) : null,
   }));
   for (const index of range(skeletons)) {
     rows.push({ ...SKELETON_ROW, key: `skeleton-${index}` });
@@ -49,6 +53,8 @@ type Row = {
   to: string | null;
   /** URL of a file, opened in a new tab; `null` for directories. */
   href: string | null;
+  /** Plain click opens the preview; `null` keeps the plain file link. */
+  onPreview: (() => void) | null;
 };
 
 const SKELETON_ROW: Omit<Row, "key"> = {
@@ -58,6 +64,7 @@ const SKELETON_ROW: Omit<Row, "key"> = {
   createdAt: null,
   to: null,
   href: null,
+  onPreview: null,
 };
 
 const NAME_SKELETON = <Skeleton.Input active size="small" />;
@@ -82,9 +89,9 @@ const COLUMNS: TableColumnsType<Row> = [
       }
       if (row.href != null) {
         return (
-          <a href={row.href} target="_blank" rel="noreferrer">
+          <StorageFileLink href={row.href} onPreview={row.onPreview}>
             {name}
-          </a>
+          </StorageFileLink>
         );
       }
       return name;
