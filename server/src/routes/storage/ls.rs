@@ -59,6 +59,14 @@ pub async fn ls(
         _ => None,
     };
 
+    let pending = page.pending;
+    if !pending.is_empty() {
+        // Detached on purpose: dropping the handle does not cancel the write.
+        std::mem::drop(tokio::task::spawn_blocking(move || {
+            storage::write_records(pending);
+        }));
+    }
+
     Ok(Json(LsResponse {
         items: page.entries,
         next_cursor,

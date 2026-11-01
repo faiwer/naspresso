@@ -18,7 +18,13 @@ pub(crate) fn file_mime(path: &Path, file_size: u64) -> &'static str {
     if let Some(mime) = extension_mime(path) {
         return mime;
     }
-    sniff_if_small(path, file_size).unwrap_or(FALLBACK_MIME)
+    sniffed_mime(path, file_size).unwrap_or(FALLBACK_MIME)
+}
+
+/// Whether [`sniffed_mime`] would open `path`. A known extension, an empty
+/// file, and a file over [`TEXT_MAX_LEN`] are typed without a read.
+pub(crate) fn needs_sniff(path: &Path, file_size: u64) -> bool {
+    extension_mime(path).is_none() && file_size > 0 && file_size <= TEXT_MAX_LEN
 }
 
 /// The MIME type by magic bytes in `head`, the start of a file of `file_size`
@@ -43,10 +49,10 @@ fn extension_mime(path: &Path) -> Option<&'static str> {
     mime_guess::from_path(path).first_raw()
 }
 
-/// Magic bytes, then a text check. `None` when the file is empty, too big, or
-/// can't be opened.
-fn sniff_if_small(path: &Path, file_size: u64) -> Option<&'static str> {
-    if file_size == 0 || file_size > TEXT_MAX_LEN {
+/// The sniffed type, when the file was actually read. `None` when
+/// [`needs_sniff`] is false or the file can't be opened.
+pub(crate) fn sniffed_mime(path: &Path, file_size: u64) -> Option<&'static str> {
+    if !needs_sniff(path, file_size) {
         return None;
     }
     let file = open(path).ok()?;

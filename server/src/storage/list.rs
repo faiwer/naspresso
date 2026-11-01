@@ -6,9 +6,13 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use media::probe_file;
+use media::{ImageMetadata, is_image_path, probe_file};
 
-use super::{Dir, Entry, EntryKind, File, StorageError, mime::file_mime};
+use super::{
+    Dir, Entry, EntryKind, File, StorageError,
+    mime::{self, file_mime},
+    xattr::{self, Pending},
+};
 
 /// One page of a directory listing.
 pub struct ListPage {
@@ -17,6 +21,9 @@ pub struct ListPage {
     pub has_more: bool,
     /// Listable entries in the whole directory, across all pages.
     pub total: usize,
+    /// Metadata for files this page had to open. The caller stores it after
+    /// returning the page; reading the page does not.
+    pub pending: Vec<Pending>,
 }
 
 /// An entry's place in the listing order: directories first, then by name
@@ -40,7 +47,8 @@ impl EntryKey {
 /// Symlinks, special files, names that aren't UTF-8, and OS metadata files
 /// (`.DS_Store`, `.apdisk`, `Thumbs.db`) are skipped. `after` doesn't have to
 /// exist anymore. `has_preview` is asked about image files, with their path
-/// and modification time, and may block.
+/// and modification time, and may block. `pending` is the attributes to store
+/// for files this page opened.
 pub async fn list_dir(
     dir: &Path,
     after: Option<EntryKey>,
@@ -94,11 +102,15 @@ fn list_dir_blocking(
 
     // Only the page gets a `stat` per entry; the rest of the directory is names only.
     let mut entries = Vec::with_capacity(limit.min(total - start));
+    let mut pending = Vec::new();
     let mut remaining = keys.into_iter().skip(start);
     while entries.len() < limit
         && let Some(key) = remaining.next()
     {
-        if let Some(entry) = read_entry(dir, key.name, has_preview)? {
+        if let Some((entry, record)) = read_entry(dir, key.name, has_preview)? {
+            if let Some(record) = record {
+                pending.push(record);
+            }
             entries.push(entry);
         }
     }
@@ -107,6 +119,7 @@ fn list_dir_blocking(
         entries,
         has_more: remaining.next().is_some(),
         total,
+        pending,
     })
 }
 
@@ -153,7 +166,11 @@ fn read_keys(dir: &Path) -> Result<Vec<SortKey>, StorageError> {
 }
 
 /// `None` when `name` is gone or is no longer a plain file or directory.
-fn read_entry(dir: &Path, name: String, has_preview: &HasPreview) -> io::Result<Option<Entry>> {
+fn read_entry(
+    dir: &Path,
+    name: String,
+    has_preview: &HasPreview,
+) -> io::Result<Option<(Entry, Option<Pending>)>> {
     let path = dir.join(&name);
     let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
@@ -168,37 +185,82 @@ fn to_entry(
     meta: &Metadata,
     path: &Path,
     has_preview: &HasPreview,
-) -> io::Result<Option<Entry>> {
+) -> io::Result<Option<(Entry, Option<Pending>)>> {
     let modified = meta.modified()?;
     let modified_at = DateTime::<Utc>::from(modified);
     let created_at = meta.created().ok().map(DateTime::<Utc>::from);
     let file_type = meta.file_type();
 
     Ok(if file_type.is_dir() {
-        Some(Entry::Dir(Dir {
-            name,
-            modified_at,
-            created_at,
-        }))
+        Some((
+            Entry::Dir(Dir {
+                name,
+                modified_at,
+                created_at,
+            }),
+            None,
+        ))
     } else if file_type.is_file() {
-        let probe = probe_file(path).ok().flatten();
-        let mime = probe
-            .as_ref()
-            .map(|probe| probe.mime)
-            .unwrap_or_else(|| file_mime(path, meta.len()));
-        let image = probe.and_then(|probe| probe.image);
-        Some(Entry::File(File {
-            name,
-            modified_at,
-            created_at,
-            size: meta.len(),
-            mime,
-            has_preview: image.is_some() && has_preview(path, modified),
-            image,
-        }))
+        let described = describe(path, meta.len(), modified);
+        Some((
+            Entry::File(File {
+                name,
+                modified_at,
+                created_at,
+                size: meta.len(),
+                mime: described.mime,
+                has_preview: described.image.is_some() && has_preview(path, modified),
+                image: described.image,
+            }),
+            described.pending,
+        ))
     } else {
         None
     })
+}
+
+/// Mime type and image header data. `pending` is set when this call opened the file.
+struct Described {
+    mime: String,
+    image: Option<ImageMetadata>,
+    pending: Option<Pending>,
+}
+
+fn describe(path: &Path, file_size: u64, modified: SystemTime) -> Described {
+    let cacheable = is_image_path(path) || mime::needs_sniff(path, file_size);
+    if cacheable && let Some(cached) = xattr::load(path, modified) {
+        return Described {
+            mime: cached.mime,
+            image: cached.image,
+            pending: None,
+        };
+    }
+
+    if is_image_path(path)
+        && let Ok(Some(probe)) = probe_file(path)
+    {
+        return Described {
+            pending: xattr::pending(path, probe.mime, probe.image, modified),
+            mime: probe.mime.to_owned(),
+            image: probe.image,
+        };
+    }
+
+    if mime::needs_sniff(path, file_size)
+        && let Some(mime) = mime::sniffed_mime(path, file_size)
+    {
+        return Described {
+            pending: xattr::pending(path, mime, None, modified),
+            mime: mime.to_owned(),
+            image: None,
+        };
+    }
+
+    Described {
+        mime: file_mime(path, file_size).to_owned(),
+        image: None,
+        pending: None,
+    }
 }
 
 #[cfg(test)]
@@ -346,5 +408,77 @@ mod tests {
         let page = list(&tmp.0, None, 100).unwrap();
         assert_eq!(names(&page.entries), ["real"]);
         assert_eq!(page.total, 1);
+    }
+
+    #[test]
+    fn a_cached_read_is_reused_until_the_file_is_newer() {
+        let tmp = TempDir::new("xattr");
+        fs::write(tmp.0.join("photo.jpg"), tiny_jpeg(4, 5)).unwrap();
+        fs::write(tmp.0.join("notes"), b"hello\n").unwrap();
+        tmp.file("readme.txt");
+
+        let first = list(&tmp.0, None, 100).unwrap();
+        assert_eq!(file(&first, "photo.jpg").image.unwrap().width, 4);
+        assert_eq!(file(&first, "photo.jpg").image.unwrap().height, 5);
+        assert_eq!(file(&first, "notes").mime, "text/plain");
+        assert!(file(&first, "notes").image.is_none());
+        assert_eq!(file(&first, "readme.txt").mime, "text/plain");
+        let mut stored: Vec<_> = first
+            .pending
+            .iter()
+            .map(|record| {
+                record
+                    .path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        stored.sort();
+        assert_eq!(stored, ["notes", "photo.jpg"]);
+        crate::storage::write_records(first.pending);
+
+        fs::write(tmp.0.join("photo.jpg"), b"nope").unwrap();
+        fs::write(tmp.0.join("notes"), [0xff, 0xfe]).unwrap();
+        rewind(&tmp.0.join("photo.jpg"));
+        rewind(&tmp.0.join("notes"));
+
+        let cached = list(&tmp.0, None, 100).unwrap();
+        assert!(cached.pending.is_empty());
+        assert_eq!(file(&cached, "photo.jpg").image.unwrap().width, 4);
+        assert_eq!(file(&cached, "notes").mime, "text/plain");
+
+        fs::write(tmp.0.join("photo.jpg"), b"nope").unwrap();
+        fs::write(tmp.0.join("notes"), [0xff, 0xfe]).unwrap();
+        let reread = list(&tmp.0, None, 100).unwrap();
+        assert!(file(&reread, "photo.jpg").image.is_none());
+        assert_eq!(file(&reread, "notes").mime, "application/octet-stream");
+        assert_eq!(reread.pending.len(), 2);
+    }
+
+    fn file<'a>(page: &'a ListPage, name: &str) -> &'a File {
+        match page.entries.iter().find(|entry| entry.name() == name) {
+            Some(Entry::File(file)) => file,
+            _ => panic!("{name} missing"),
+        }
+    }
+
+    fn rewind(path: &Path) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH)
+            .unwrap();
+    }
+
+    /// A JPEG whose frame header says `width` by `height` and nothing else.
+    fn tiny_jpeg(width: u16, height: u16) -> Vec<u8> {
+        let mut data = vec![0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x07, 8];
+        data.extend(height.to_be_bytes());
+        data.extend(width.to_be_bytes());
+        data
     }
 }

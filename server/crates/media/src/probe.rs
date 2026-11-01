@@ -44,6 +44,11 @@ fn image_mime(head: &[u8], path: &Path) -> &'static str {
         .unwrap_or("application/octet-stream")
 }
 
+/// Whether [`probe_file`](probe_file) would open `path`.
+pub fn is_image_path(path: &Path) -> bool {
+    image_extension_mime(path).is_some()
+}
+
 fn image_extension_mime(path: &Path) -> Option<&'static str> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match ext.as_str() {

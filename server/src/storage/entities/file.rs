@@ -16,7 +16,7 @@ pub struct File {
     /// Bytes.
     pub size: u64,
     /// By magic bytes for images, by extension for everything else.
-    pub mime: &'static str,
+    pub mime: String,
     /// `None` for non-images and for images whose headers couldn't be read.
     pub image: Option<ImageMetadata>,
     /// Whether previews of the current version are cached, so asking for one
