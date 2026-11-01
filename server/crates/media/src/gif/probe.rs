@@ -84,7 +84,7 @@ fn skip_sub_blocks<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SNIFF_LEN, test_support::page_reader};
+    use crate::{probe::SNIFF_LEN, test_support::page_reader};
 
     /// A GIF with a 4-color global table, a comment, a loop extension if
     /// `looping`, and `frames` frames of two data blocks each.

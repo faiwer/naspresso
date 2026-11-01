@@ -4,14 +4,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use media::{SNIFF_LEN, sniff_mime};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt},
 };
 use twox_hash::XxHash3_64;
 
-use super::StorageError;
+use super::{
+    StorageError,
+    mime::{SNIFF_LEN, sniff_mime},
+};
 
 pub struct OpenedFile {
     pub file: fs::File,
@@ -44,7 +46,8 @@ pub async fn open_file(path: &Path) -> Result<OpenedFile, StorageError> {
 }
 
 impl OpenedFile {
-    /// The MIME type by magic bytes, then by extension. Leaves the file at the start.
+    /// Magic bytes, then the extension, then a text check for a small file the
+    /// table doesn't know. Leaves the file at the start.
     pub async fn mime(&mut self) -> Result<&'static str, StorageError> {
         let mut head = Vec::with_capacity(SNIFF_LEN);
         (&mut self.file)
@@ -53,7 +56,7 @@ impl OpenedFile {
             .await?;
         self.file.seek(SeekFrom::Start(0)).await?;
 
-        Ok(sniff_mime(&head, &self.path))
+        Ok(sniff_mime(&head, self.size, &self.path))
     }
 }
 

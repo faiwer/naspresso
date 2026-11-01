@@ -8,7 +8,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use media::probe_file;
 
-use super::{Dir, Entry, EntryKind, File, StorageError};
+use super::{Dir, Entry, EntryKind, File, StorageError, mime::file_mime};
 
 /// One page of a directory listing.
 pub struct ListPage {
@@ -172,15 +172,20 @@ fn to_entry(
             created_at,
         }))
     } else if file_type.is_file() {
-        let probe = probe_file(path);
+        let probe = probe_file(path).ok().flatten();
+        let mime = probe
+            .as_ref()
+            .map(|probe| probe.mime)
+            .unwrap_or_else(|| file_mime(path, meta.len()));
+        let image = probe.and_then(|probe| probe.image);
         Some(Entry::File(File {
             name,
             modified_at,
             created_at,
             size: meta.len(),
-            mime: probe.mime,
-            has_preview: probe.image.is_some() && has_preview(path, modified),
-            image: probe.image,
+            mime,
+            has_preview: image.is_some() && has_preview(path, modified),
+            image,
         }))
     } else {
         None

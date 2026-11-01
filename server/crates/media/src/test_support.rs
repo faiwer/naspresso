@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::mime::SNIFF_LEN;
+use crate::probe::SNIFF_LEN;
 
 /// A [`Cursor`] that adds every byte it returns to a shared counter.
 pub struct CountingReader {

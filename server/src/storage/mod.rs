@@ -3,6 +3,7 @@
 mod entities;
 mod error;
 mod list;
+mod mime;
 mod path;
 mod read;
 

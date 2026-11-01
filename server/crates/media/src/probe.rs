@@ -9,52 +9,64 @@ use crate::{
     exif::{self, upright},
     gif, heif, jpeg, jxl,
     metadata::{Hdr, ImageMetadata},
-    mime::{SNIFF_LEN, guess_mime, sniff_mime},
     png, webp,
 };
 
-/// Files with other extensions aren't opened.
-const IMAGE_EXTENSIONS: [&str; 16] = [
-    "apng", "avif", "bmp", "gif", "heic", "heif", "hif", "jfif", "jpe", "jpeg", "jpg", "jxl",
-    "png", "tif", "tiff", "webp",
-];
+/// How much of an image is read to recognize its type: one memory page.
+pub(crate) const SNIFF_LEN: usize = 4096;
 
 pub struct Probe {
     pub mime: &'static str,
     pub image: Option<ImageMetadata>,
 }
 
-/// The type of the file at `path` and, for an image, its size and HDR kind.
-/// Only files named like images are opened. Never fails: whatever can't be
-/// read is typed by extension.
-pub fn probe_file(path: &Path) -> Probe {
-    if has_image_extension(path) {
-        match probe_image(path) {
-            Ok(probe) => return probe,
-            Err(e) => tracing::debug!(error = %e, path = %path.display(), "can't open an image"),
-        }
+/// Image metadata for `path`, when its extension is one this crate reads.
+/// `Ok(None)` for any other extension, without opening the file. The MIME type
+/// is magic bytes, or the extension when the bytes aren't recognized.
+pub fn probe_file(path: &Path) -> io::Result<Option<Probe>> {
+    if image_extension_mime(path).is_none() {
+        return Ok(None);
     }
-    Probe {
-        mime: guess_mime(path),
-        image: None,
+    match probe_image(path) {
+        Ok(probe) => Ok(Some(probe)),
+        Err(e) => {
+            tracing::debug!(error = %e, path = %path.display(), "can't open an image");
+            Err(e)
+        }
     }
 }
 
-fn has_image_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            IMAGE_EXTENSIONS
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(ext))
-        })
+/// Magic bytes, or the image extension when those bytes aren't a known type.
+fn image_mime(head: &[u8], path: &Path) -> &'static str {
+    infer::get(head)
+        .map(|kind| kind.mime_type())
+        .or_else(|| image_extension_mime(path))
+        .unwrap_or("application/octet-stream")
+}
+
+fn image_extension_mime(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "jpg" | "jpeg" | "jpe" | "jfif" => "image/jpeg",
+        "png" => "image/png",
+        "apng" => "image/apng",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "avif" => "image/avif",
+        "heic" => "image/heic",
+        "heif" | "hif" => "image/heif",
+        "jxl" => "image/jxl",
+        _ => return None,
+    })
 }
 
 fn probe_image(path: &Path) -> io::Result<Probe> {
     let file = open(path)?;
     disable_read_ahead(&file);
     let mut reader = BufReader::with_capacity(SNIFF_LEN, file);
-    let mime = sniff_mime(reader.fill_buf()?, path);
+    let mime = image_mime(reader.fill_buf()?, path);
     let image = read_image(&mut reader, mime)
         .inspect_err(
             |e| tracing::debug!(error = %e, path = %path.display(), "unreadable image header"),
@@ -150,18 +162,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn non_images_are_typed_without_opening() {
+    fn a_non_image_is_not_opened() {
         // Doesn't exist, so opening it would fail.
-        let probe = probe_file(Path::new("/nonexistent/report.pdf"));
-        assert_eq!(probe.mime, "application/pdf");
-        assert!(probe.image.is_none());
+        assert!(
+            probe_file(Path::new("/nonexistent/report.pdf"))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
-    fn unopenable_images_fall_back_to_the_extension() {
-        let probe = probe_file(Path::new("/nonexistent/photo.JPG"));
-        assert_eq!(probe.mime, "image/jpeg");
-        assert!(probe.image.is_none());
+    fn an_unopenable_image_is_an_error() {
+        assert!(probe_file(Path::new("/nonexistent/photo.JPG")).is_err());
     }
 
     #[test]
@@ -169,7 +181,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("naspresso-probe-{}.gif", std::process::id()));
         // A GIF header claiming 3×2.
         fs::write(&path, b"GIF89a\x03\x00\x02\x00\x00\x00\x00;").unwrap();
-        let probe = probe_file(&path);
+        let probe = probe_file(&path).unwrap().unwrap();
         let _ = fs::remove_file(&path);
 
         assert_eq!(probe.mime, "image/gif");

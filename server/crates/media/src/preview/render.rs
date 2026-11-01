@@ -70,7 +70,9 @@ impl Rendered {
 /// `1..=100` and `speed` `1..=10`, slowest to fastest. Blocks: decoding and
 /// encoding are CPU-bound.
 pub fn render(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewError> {
-    let probe = probe_file(path);
+    let Some(probe) = probe_file(path)? else {
+        return Err(PreviewError::UnsupportedFormat("application/octet-stream"));
+    };
     let hdr = probe.image.map(|image| image.hdr);
     if probe.mime == "image/jxl" {
         return make_previews_from_jxl(&fs::read(path)?, hdr, quality, speed);
