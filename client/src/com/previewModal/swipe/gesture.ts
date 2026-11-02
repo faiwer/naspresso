@@ -2,7 +2,7 @@
 export const DRAG_SLOP_PX = 8;
 
 /** A slow finger commits after this fraction of the way to the neighbor. */
-export const SNAP_FRACTION = 0.25;
+export const SNAP_FRACTION = 0.1;
 
 /** A flick is projected forward by this many milliseconds. */
 export const FLICK_MS = 150;
