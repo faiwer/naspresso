@@ -58,7 +58,11 @@ export const PreviewFrame = ({
           ref={imageRef}
           className={styles.image}
           // Pass it before `src` to ensure the cached images are handled correctly.
-          onLoad={onLoad}
+          onLoad={() => {
+            onLoad?.();
+            // Force early decoding to avoid layout thrashing when the swipe starts.
+            imageRef.current!.decode();
+          }}
           src={getEntryFileUrl(segments, file.name)}
           alt={file.name}
           draggable={false}
