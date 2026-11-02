@@ -20,6 +20,14 @@
   transform: translate(0, -50%);
 }
 
+.left,
+.right {
+  /* This line speeds up the animation A LOT on Pixel 8pro. Without it the 1st
+   * translateX shifts takes up to 300ms, because the browser lazily initialize
+   * the content of the <img/> element. */
+  will-change: transform;
+}
+
 .image {
   display: block;
   width: 100%;
