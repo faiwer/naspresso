@@ -69,6 +69,11 @@ export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
         event.preventDefault();
         swipe.navigate(chord === "ArrowLeft" ? -1 : 1);
       }}
+      onPointerDown={swipe.onPointerDown}
+      onPointerMove={swipe.onPointerMove}
+      onPointerUp={swipe.onPointerUp}
+      onPointerCancel={swipe.onPointerCancel}
+      onContextmenu={(event) => event.preventDefault()}
     >
       <div
         ref={useStableCallback((element) =>
@@ -83,15 +88,6 @@ export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
           ),
         )}
         className={styles.viewport}
-        onPointerDown={swipe.onPointerDown}
-        onPointerMove={swipe.onPointerMove}
-        onPointerUp={swipe.onPointerUp}
-        onPointerCancel={swipe.onPointerCancel}
-        onContextmenu={(event) => {
-          if (event.target === event.currentTarget) {
-            event.preventDefault();
-          }
-        }}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
             onClose();

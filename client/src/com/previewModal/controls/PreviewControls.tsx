@@ -24,8 +24,8 @@ export const PreviewControls = ({
   return (
     <div
       className={clsx(styles.layer, chrome.visible && styles.visible)}
-      onMouseOver={chrome.onMouseOver}
-      onMouseOut={chrome.onMouseOut}
+      onPointerOver={chrome.onPointerOver}
+      onPointerOut={chrome.onPointerOut}
     >
       {pos > 0 && (
         <div
