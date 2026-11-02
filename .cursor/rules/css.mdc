@@ -1,0 +1,12 @@
+---
+description: CSS sizes and colors for the client
+globs: client/**/*.css
+alwaysApply: true
+---
+
+# CSS
+
+- Sizes are `rem`. Border widths stay `px`, because borders are borders.
+- Colors come from the theme palette on `:root` in
+  `client/src/global.css` (`var(--color-…)`). A new color is a new token
+  there, not a raw value in a component.

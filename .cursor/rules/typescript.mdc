@@ -12,7 +12,11 @@ alwaysApply: true
   what the file is for on the first screen.
 - Exception: the props type of the file's main component goes right above
   that component, even when the type isn't exported.
-- Always brace `if` / `for` / `while` bodies, including early returns.
+- Brace `if` / `for` / `while` bodies. A guard that only returns stays on
+  one line, `if (cond) return;`. When the rest of the function is the work,
+  invert the condition and brace that body instead of a braced `return`
+  followed by the real lines. Run oxfmt when it is unclear which form it
+  keeps.
 - Functions are verbs (`parseStorageUrl`); components are nouns.
 - A direct mapping is a `Record`:
   `const zoneRank: Record<Zone, number> = { visible: 0, … }`. Use a
@@ -59,8 +63,10 @@ alwaysApply: true
 - Loading data: `useAsyncData((signal) => apiFn(…, { signal }), deps)` from
   `core/hooks`. Other async effects: `useAsyncEffect`. Both own the
   `AbortController`; don't hand-roll `useEffect` + `.then`.
-- Deps of those hooks aren't linted: list what should re-run the effect,
-  not everything the closure reads.
+- Effect deps list what should re-run the effect, not everything the closure
+  reads. `exhaustive-deps` is wrong about this and is not followed. Prefer
+  `useAsyncEffect` / `useAsyncData`, whose deps aren't linted. Do not wrap a
+  callback in `useStableCallback` just to satisfy that lint.
 - Never list a ref in an effect dependency array. A ref is not reactive, so
   `.current` changing does not re-run the effect. Read `.current` inside
   `useAsyncEffect`: its deps aren't linted, so the ref is not demanded.
