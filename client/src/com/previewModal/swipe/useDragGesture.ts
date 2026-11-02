@@ -1,7 +1,12 @@
 import { useRef } from "react";
 
 import type { StorageFile } from "../../../api/storage.io";
-import { getCommitDelta, dragTranslate, getSnapDistance } from "./gesture";
+import {
+  getCommitDelta,
+  dragTranslate,
+  getSnapDistance,
+  commitTranslate,
+} from "./gesture";
 import { type Motion } from "./motion";
 import { sampleDrag, sampleRelease, startDrag, type Drag } from "./pointer";
 import { frameWidth, neighborAt, type Viewport } from "./widths";
@@ -99,9 +104,7 @@ export const useDragGesture = ({
     const translateX =
       delta === 0 || snapDistance == null
         ? 0
-        : delta > 0
-          ? -snapDistance
-          : snapDistance;
+        : commitTranslate(delta, snapDistance);
 
     setMotion((prev) => ({
       ...prev,

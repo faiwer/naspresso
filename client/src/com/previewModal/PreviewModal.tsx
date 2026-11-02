@@ -6,6 +6,7 @@ import {
   useEffect,
 } from "react";
 
+import { formatKeyChord } from "../../core/helpers/keyboard";
 import { nullthrows } from "../../core/helpers/nullthrows";
 import { updateIfChanged } from "../../core/helpers/object";
 import type { PreviewSession } from "./context";
@@ -60,6 +61,12 @@ export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
       onCancel={(event) => {
         event.preventDefault();
         onClose();
+      }}
+      onKeyDown={(event) => {
+        const chord = formatKeyChord(event.nativeEvent);
+        if (chord !== "ArrowLeft" && chord !== "ArrowRight") return;
+        event.preventDefault();
+        swipe.navigate(chord === "ArrowLeft" ? -1 : 1);
       }}
     >
       <div

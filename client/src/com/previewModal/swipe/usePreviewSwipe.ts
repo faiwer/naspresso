@@ -1,10 +1,14 @@
 import { useState, useStableCallback } from "react";
 
 import type { StorageFile } from "../../../api/storage.io";
-import { type SideDownloaded } from "./gesture";
+import {
+  commitTranslate,
+  getSnapDistance,
+  type SideDownloaded,
+} from "./gesture";
 import { initialMotion, type Motion } from "./motion";
 import { useDragGesture } from "./useDragGesture";
-import type { Viewport } from "./widths";
+import { frameWidth, neighborAt, type Viewport } from "./widths";
 
 /** Touch swipe between the images already in the session. */
 export const usePreviewSwipe = (
@@ -30,12 +34,36 @@ export const usePreviewSwipe = (
     }));
   });
 
+  // Callback for non-swipe navigation. Just to reuse the same animation code.
+  const navigate = useStableCallback((delta: -1 | 1) => {
+    // Block any navigation during already ongoing animation.
+    if (motion.settling || viewport == null) return;
+
+    // Positive dx moves toward the previous image.
+    const dx = delta > 0 ? -1 : 1;
+    const neighbor = neighborAt(files, pos, dx, viewport);
+    // The 1st or the last image has no neighbor.
+    if (neighbor == null) return;
+
+    setMotion((prev) => ({
+      ...prev,
+      translateX: commitTranslate(
+        delta,
+        getSnapDistance(viewport.width, frameWidth(files[pos], viewport)),
+      ),
+      settling: true,
+      delta,
+      promoted: neighbor.side,
+    }));
+  });
+
   return {
     translateX: motion.translateX,
     settling: motion.settling,
     promoted: motion.promoted,
     downloaded: motion.downloaded,
     markDownloaded,
+    navigate,
     onSettled: useOnSettled(pos, setMotion, setPos),
     ...gesture,
   };

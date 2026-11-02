@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  commitTranslate,
   getCommitDelta,
   dragTranslate,
   FLICK_MS,
@@ -60,6 +61,13 @@ describe("neighborShift", () => {
   it("stays flush while the track has not moved", () => {
     expect(neighborShift(0, 1000, 924, 740, "right")).toBe(0);
     expect(neighborShift(0, 1000, 924, 740, "left")).toBe(0);
+  });
+});
+
+describe("commitTranslate", () => {
+  it("moves the track so the chosen neighbor lands in the center", () => {
+    expect(commitTranslate(1, 890)).toBe(-890);
+    expect(commitTranslate(-1, 890)).toBe(890);
   });
 });
 

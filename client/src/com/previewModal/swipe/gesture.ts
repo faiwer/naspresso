@@ -130,4 +130,11 @@ export const getCommitDelta = (
   return sign > 0 ? -1 : 1;
 };
 
+/**
+ * Track offset that carries the current image fully off screen toward `delta`.
+ * Positive `delta` is the next image, so the track moves left.
+ */
+export const commitTranslate = (delta: -1 | 1, snapDistance: number): number =>
+  delta > 0 ? -snapDistance : snapDistance;
+
 export type SideDownloaded = { left: boolean; center: boolean; right: boolean };
