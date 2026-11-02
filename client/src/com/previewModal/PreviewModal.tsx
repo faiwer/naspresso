@@ -10,6 +10,7 @@ import { formatKeyChord } from "../../core/helpers/keyboard";
 import { nullthrows } from "../../core/helpers/nullthrows";
 import { updateIfChanged } from "../../core/helpers/object";
 import type { PreviewSession } from "./context";
+import { PreviewControls } from "./controls/PreviewControls";
 import { PreviewStrip } from "./PreviewStrip";
 import { usePreviewSwipe } from "./swipe/usePreviewSwipe";
 
@@ -112,6 +113,14 @@ export const PreviewModal = ({ session, onClose }: PreviewModalProps) => {
           />
         )}
       </div>
+      {viewport && (
+        <PreviewControls
+          viewport={viewport.element}
+          pos={pos}
+          count={session.files.length}
+          onNavigate={swipe.navigate}
+        />
+      )}
     </dialog>
   );
 };

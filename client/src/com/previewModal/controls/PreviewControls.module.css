@@ -1,0 +1,56 @@
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms;
+
+  > * {
+    pointer-events: auto;
+  }
+}
+
+.visible {
+  opacity: 1;
+}
+
+.arrow {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  width: 3.5rem;
+  height: 3.5rem;
+  place-items: center;
+  font-size: 1.7rem;
+  color: var(--color-preview-chrome-fg);
+  cursor: pointer;
+  user-select: none;
+  background: var(--color-preview-chrome-bg);
+  border-radius: 50%;
+  transform: translateY(-50%);
+}
+
+.left {
+  left: 1.5rem;
+}
+
+.right {
+  right: 1.5rem;
+}
+
+.counter {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  /* ~= make them monospace */
+  font-variant-numeric: tabular-nums;
+  color: var(--color-preview-chrome-fg);
+  background: var(--color-preview-chrome-bg);
+  /* 100% would skew the shape, since it's not a square. */
+  border-radius: 999rem;
+  transform: translateX(-50%);
+  user-select: none;
+}
