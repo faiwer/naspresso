@@ -6,15 +6,14 @@ use anyhow::{Context, bail};
 
 use crate::{config::Config, storage};
 
-pub async fn encrypt(mut args: impl Iterator<Item = String>) -> anyhow::Result<()> {
-    let Some(file_path) = args.next() else {
-        bail!("usage: encrypt <file_path>");
-    };
-    if args.next().is_some() {
-        bail!("usage: encrypt <file_path>");
-    }
+const USAGE: &str = "usage: encrypt [-p<password>] <file_path>";
 
-    let password = rpassword::prompt_password("Password: ").context("reading password")?;
+pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (file_path, password) = parse_encrypt_args(args)?;
+    let password = match password {
+        Some(password) => password,
+        None => rpassword::prompt_password("Password: ").context("reading password")?,
+    };
     crypto::validate_password(&password)?;
     let key = crypto::prepare(&password)?;
 
@@ -50,6 +49,28 @@ pub async fn encrypt(mut args: impl Iterator<Item = String>) -> anyhow::Result<(
     Ok(())
 }
 
+fn parse_encrypt_args(
+    args: impl Iterator<Item = String>,
+) -> anyhow::Result<(String, Option<String>)> {
+    let mut file_path = None;
+    let mut password = None;
+    for arg in args {
+        if let Some(value) = arg.strip_prefix("-p") {
+            if password.is_some() {
+                bail!(USAGE);
+            }
+            password = Some(value.to_string());
+        } else if file_path.is_some() {
+            bail!(USAGE);
+        } else {
+            file_path = Some(arg);
+        }
+    }
+    file_path
+        .ok_or_else(|| anyhow::anyhow!(USAGE))
+        .map(|file_path| (file_path, password))
+}
+
 /// Create `path` for writing. An existing file is left untouched.
 async fn create_output(path: PathBuf) -> io::Result<tokio::fs::File> {
     if tokio::fs::try_exists(&path).await? {
@@ -63,4 +84,39 @@ async fn create_output(path: PathBuf) -> io::Result<tokio::fs::File> {
         .create_new(true)
         .open(path)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_encrypt_args;
+
+    fn parse(args: &[&str]) -> anyhow::Result<(String, Option<String>)> {
+        parse_encrypt_args(args.iter().map(|arg| (*arg).to_string()))
+    }
+
+    #[test]
+    fn reads_a_glued_password() {
+        let (path, password) = parse(&["-psecret", "note.txt"]).unwrap();
+        assert_eq!(path, "note.txt");
+        assert_eq!(password.as_deref(), Some("secret"));
+
+        let (path, password) = parse(&["note.txt", "-psecret"]).unwrap();
+        assert_eq!(path, "note.txt");
+        assert_eq!(password.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn prompts_when_the_password_is_absent() {
+        let (path, password) = parse(&["note.txt"]).unwrap();
+        assert_eq!(path, "note.txt");
+        assert_eq!(password, None);
+    }
+
+    #[test]
+    fn rejects_a_bad_shape() {
+        assert!(parse(&[]).is_err());
+        assert!(parse(&["-psecret"]).is_err());
+        assert!(parse(&["a.txt", "b.txt"]).is_err());
+        assert!(parse(&["-pone", "-ptwo", "a.txt"]).is_err());
+    }
 }
