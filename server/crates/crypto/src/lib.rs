@@ -6,4 +6,4 @@ mod password;
 
 pub use encrypt::{EncryptedFile, encrypt};
 pub use error::{EncryptError, PasswordError};
-pub use password::validate_password;
+pub use password::{Key, prepare, validate_password};

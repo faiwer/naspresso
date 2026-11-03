@@ -15,4 +15,7 @@ pub enum PasswordError {
 
     #[error("password must be base62")]
     Symbol,
+
+    #[error("could not derive the key")]
+    Derive,
 }
