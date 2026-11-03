@@ -1,6 +1,6 @@
 //! Subcommands. The server starts when none is given.
 
-use std::path::PathBuf;
+use std::{io, path::PathBuf};
 
 use anyhow::{Context, bail};
 
@@ -34,7 +34,10 @@ pub async fn encrypt(mut args: impl Iterator<Item = String>) -> anyhow::Result<(
     // The ciphertext does not use a key yet.
     let encrypted = crypto::encrypt(&path, &key, opened.file, {
         let directory = directory.clone();
-        move |file_name| async move { tokio::fs::File::create(directory.join(file_name)).await }
+        move |file_name| {
+            let output = directory.join(file_name);
+            async move { create_output(output).await }
+        }
     })
     .await
     .with_context(|| format!("encrypting {file_path}"))?;
@@ -45,4 +48,19 @@ pub async fn encrypt(mut args: impl Iterator<Item = String>) -> anyhow::Result<(
         directory.join(&encrypted.file_name).display()
     );
     Ok(())
+}
+
+/// Create `path` for writing. An existing file is left untouched.
+async fn create_output(path: PathBuf) -> io::Result<tokio::fs::File> {
+    if tokio::fs::try_exists(&path).await? {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} already exists", path.display()),
+        ));
+    }
+    tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .await
 }
