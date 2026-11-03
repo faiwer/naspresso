@@ -6,20 +6,19 @@ use std::{
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, copy};
 
-use crate::{EncryptError, Key};
+use crate::{EncryptError, FilenameError, Key, encrypt_filename};
 
 /// Ciphertext written for one input file.
 pub struct EncryptedFile {
     /// Bytes written to [`Self::file_name`].
     pub size: u64,
-    /// The input file's name with `.npe` appended. The directory is the caller's.
+    /// Encrypted file name, with a `.npe` suffix. The directory is the caller's.
     pub file_name: PathBuf,
 }
 
-/// Copy `reader` into `<file name>.npe` through `open_writer`.
+/// Copy `reader` into an encrypted `<name>.npe` through `open_writer`.
 ///
-/// `open_writer` receives that file name (`photo.jpg` becomes `photo.jpg.npe`)
-/// and returns the writer to fill. `key` is the derived key for the file.
+/// `open_writer` receives that file name. `key.names` encrypts it.
 pub async fn encrypt<R, W, Fut>(
     file_path: impl AsRef<Path>,
     key: &Key,
@@ -31,10 +30,7 @@ where
     Fut: Future<Output = io::Result<W>>,
     W: AsyncWrite + Unpin,
 {
-    // Applied once the ciphertext is real; the caller already has to pass it.
-    let _ = key;
-
-    let file_name = npe_name(file_path.as_ref());
+    let file_name = encrypted_name(file_path.as_ref(), key)?;
     let mut writer = open_writer(file_name.clone()).await?;
     let size = copy(&mut reader, &mut writer).await?;
     writer.shutdown().await?;
@@ -42,14 +38,11 @@ where
     Ok(EncryptedFile { size, file_name })
 }
 
-/// The input file's name with `.npe` appended, without its directory.
-fn npe_name(file_path: &Path) -> PathBuf {
-    let mut name = file_path
-        .file_name()
-        .unwrap_or(file_path.as_os_str())
-        .to_os_string();
-    name.push(".npe");
-    PathBuf::from(name)
+fn encrypted_name(file_path: &Path, key: &Key) -> Result<PathBuf, EncryptError> {
+    let Some(name) = file_path.file_name().and_then(|name| name.to_str()) else {
+        return Err(FilenameError::Invalid.into());
+    };
+    Ok(PathBuf::from(encrypt_filename(key, name)?))
 }
 
 #[cfg(test)]
@@ -93,16 +86,18 @@ mod tests {
             names: [0; 32],
             contents: [0; 32],
         };
+        let expected = PathBuf::from(encrypt_filename(&key, "photo.jpg").unwrap());
         let encrypted = encrypt(
             Path::new("album/photo.jpg"),
             &key,
             io::Cursor::new(&source[..]),
             {
                 let captured = Arc::clone(&captured);
+                let expected = expected.clone();
                 move |name| {
                     let captured = Arc::clone(&captured);
                     async move {
-                        assert_eq!(name, PathBuf::from("photo.jpg.npe"));
+                        assert_eq!(name, expected);
                         Ok(Mem(captured))
                     }
                 }
@@ -112,7 +107,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(encrypted.size, source.len() as u64);
-        assert_eq!(encrypted.file_name, PathBuf::from("photo.jpg.npe"));
+        assert_eq!(encrypted.file_name, expected);
         assert_eq!(*captured.lock().expect("writer lock"), source);
     }
 }
