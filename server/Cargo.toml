@@ -18,6 +18,7 @@ infer = "0.22.0"
 libc = "0.2.191"
 media = { path = "crates/media" }
 mime_guess = "2.0.5"
+rpassword = "7.5.4"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }

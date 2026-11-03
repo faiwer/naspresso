@@ -14,6 +14,9 @@ pub async fn encrypt(mut args: impl Iterator<Item = String>) -> anyhow::Result<(
         bail!("usage: encrypt <file_path>");
     }
 
+    let password = rpassword::prompt_password("Password: ").context("reading password")?;
+    crypto::validate_password(&password)?;
+
     let config = Config::from_env().context("loading config from environment")?;
     // A storage-relative path, same as `/storage/*`: inside `STORAGE`, no `..`,
     // and every component already exists.
@@ -28,7 +31,7 @@ pub async fn encrypt(mut args: impl Iterator<Item = String>) -> anyhow::Result<(
     };
 
     // The ciphertext does not use a key yet.
-    let encrypted = crypto::encrypt(&path, "", opened.file, {
+    let encrypted = crypto::encrypt(&path, &password, opened.file, {
         let directory = directory.clone();
         move |file_name| async move { tokio::fs::File::create(directory.join(file_name)).await }
     })
