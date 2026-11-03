@@ -7,6 +7,7 @@ use state::AppState;
 use tokio::{net::TcpListener, signal};
 
 mod cancel;
+mod commands;
 mod config;
 mod error;
 mod preview;
@@ -17,6 +18,15 @@ mod telemetry;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("encrypt") {
+        return commands::encrypt(args).await;
+    }
+
+    serve().await
+}
+
+async fn serve() -> anyhow::Result<()> {
     // Before telemetry, so `RUST_LOG` from `.env` takes effect.
     let config = Config::from_env().context("loading config from environment")?;
 
