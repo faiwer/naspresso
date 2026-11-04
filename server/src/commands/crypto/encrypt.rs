@@ -1,32 +1,24 @@
-use std::{
-    ffi::OsString,
-    io,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 
-use super::args::{key_from, parse_args};
-use crate::{config::Config, storage};
+use super::{
+    args::{key_from, parse_args},
+    output::{create_output, tmp_path},
+};
 
 pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
     let (file_path, password) = parse_args(args, USAGE)?;
     let key = key_from(password)?;
-
-    let config = Config::from_env().context("loading config from environment")?;
-    // A storage-relative path, same as `/storage/*`: inside `STORAGE`, no `..`,
-    // and every component already exists.
-    let path = storage::resolve(&config.storage, &file_path)
+    let path = PathBuf::from(&file_path);
+    let file = tokio::fs::File::open(&path)
         .await
-        .with_context(|| format!("{file_path} in STORAGE"))?;
-    let opened = storage::open_file(&path)
-        .await
-        .with_context(|| format!("{file_path} in STORAGE"))?;
+        .with_context(|| format!("opening {file_path}"))?;
     let Some(directory) = path.parent().map(PathBuf::from) else {
         bail!("{file_path} has no directory");
     };
 
-    let encrypted = crypto::encrypt(&path, &key, opened.file, {
+    let encrypted = crypto::encrypt(&path, &key, file, {
         let directory = directory.clone();
         move |file_name| {
             let output = directory.join(file_name);
@@ -41,30 +33,8 @@ pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("renaming {}", dest.display()))?;
 
-    println!("{}", directory.join(&encrypted.file_name).display());
+    println!("{}", dest.display());
     Ok(())
 }
 
 const USAGE: &str = "usage: crypto encrypt [-p<password>] <file_path>";
-
-/// Create the `.tmp` beside `path`. An existing final file is left untouched.
-async fn create_output(path: PathBuf) -> io::Result<tokio::fs::File> {
-    if tokio::fs::try_exists(&path).await? {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!("{} already exists", path.display()),
-        ));
-    }
-    tokio::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(tmp_path(&path))
-        .await
-}
-
-fn tmp_path(path: &Path) -> PathBuf {
-    let mut name = OsString::from(path);
-    name.push(".tmp");
-    PathBuf::from(name)
-}

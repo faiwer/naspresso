@@ -71,13 +71,7 @@ fn round_trip(plain: &[u8]) {
         HEADER_SIZE + plain.len() as u64 + 16 * chunks as u64 + EOF_SIZE
     );
     let mut decoded = Vec::new();
-    super::decrypt_content(
-        &key(0x11),
-        &mut Cursor::new(&encrypted),
-        encrypted.len() as u64,
-        &mut decoded,
-    )
-    .unwrap();
+    super::decrypt_content(&key(0x11), &mut Cursor::new(&encrypted), &mut decoded).unwrap();
     assert_eq!(decoded, plain);
 
     let mut file = ContentFile::open(&key(0x11), Cursor::new(encrypted)).unwrap();
@@ -121,13 +115,7 @@ fn round_trips_irregular_reads_and_binary_bytes() {
     let mut encrypted = Vec::new();
     encrypt_with_prefix(&key(0x11), &mut reader, &mut encrypted, &PREFIX).unwrap();
     let mut decoded = Vec::new();
-    super::decrypt_content(
-        &key(0x11),
-        &mut Cursor::new(&encrypted),
-        encrypted.len() as u64,
-        &mut decoded,
-    )
-    .unwrap();
+    super::decrypt_content(&key(0x11), &mut Cursor::new(&encrypted), &mut decoded).unwrap();
     assert_eq!(decoded, plain);
 }
 
@@ -190,12 +178,7 @@ fn an_empty_file_has_no_plaintext() {
     assert_eq!(encrypted.len() as u64, HEADER_SIZE + EOF_SIZE);
     let mut file = ContentFile::open(&key(0x11), Cursor::new(&encrypted)).unwrap();
     assert_eq!(read_at(&mut file, 0, &mut [0; 4]).unwrap(), 0);
-    super::verify_all(
-        &key(0x11),
-        &mut Cursor::new(encrypted),
-        HEADER_SIZE + EOF_SIZE,
-    )
-    .unwrap();
+    super::verify_all(&key(0x11), &mut Cursor::new(encrypted)).unwrap();
 }
 
 #[test]
@@ -214,47 +197,27 @@ fn a_wrong_key_fails_closed() {
     ));
 
     let empty = seal(b"");
-    assert!(
-        super::verify_all(&key(0x22), &mut Cursor::new(empty), HEADER_SIZE + EOF_SIZE).is_err()
-    );
+    assert!(super::verify_all(&key(0x22), &mut Cursor::new(empty)).is_err());
 }
 
 #[test]
 fn corruption_is_rejected_by_the_matching_check() {
     let mut encrypted = seal(b"hello world");
-    encrypted[25] ^= 0x01;
-    assert!(
-        super::verify_tag_sequence(
-            &key(0x11),
-            &mut Cursor::new(encrypted.clone()),
-            encrypted.len() as u64
-        )
-        .is_ok()
-    );
-    assert!(
-        super::verify_all(
-            &key(0x11),
-            &mut Cursor::new(encrypted.clone()),
-            encrypted.len() as u64
-        )
-        .is_err()
-    );
+    encrypted[HEADER_SIZE as usize] ^= 0x01;
+    assert!(super::verify_tag_sequence(&key(0x11), &mut Cursor::new(encrypted.clone())).is_ok());
+    assert!(super::verify_all(&key(0x11), &mut Cursor::new(encrypted.clone())).is_err());
 
     let mut tag = seal(b"hello world");
     let tag_at = HEADER_SIZE as usize + b"hello world".len();
     tag[tag_at] ^= 0x01;
-    assert!(
-        super::verify_tag_sequence(&key(0x11), &mut Cursor::new(&tag), tag.len() as u64).is_err()
-    );
+    assert!(super::verify_tag_sequence(&key(0x11), &mut Cursor::new(&tag)).is_err());
 
     let mut eof = seal(b"hello world");
     let last = eof.len() - 1;
     eof[last] ^= 0x01;
     let mut opened = ContentFile::open(&key(0x11), Cursor::new(eof.clone())).unwrap();
     assert_eq!(read_at(&mut opened, 0, &mut [0; 11]).unwrap(), 11);
-    assert!(
-        super::verify_tag_sequence(&key(0x11), &mut Cursor::new(&eof), eof.len() as u64).is_err()
-    );
+    assert!(super::verify_tag_sequence(&key(0x11), &mut Cursor::new(&eof)).is_err());
 
     let mut magic = seal(b"hello world");
     magic[0] ^= 0x01;
@@ -272,18 +235,12 @@ fn corruption_is_rejected_by_the_matching_check() {
     let mut truncated = seal(b"hello world");
     truncated.pop();
     assert!(
-        super::decrypt_content(
-            &key(0x11),
-            &mut Cursor::new(&truncated),
-            truncated.len() as u64,
-            &mut Vec::new()
-        )
-        .is_err()
+        super::decrypt_content(&key(0x11), &mut Cursor::new(&truncated), &mut Vec::new()).is_err()
     );
 
     let mut extra = seal(b"hello world");
     extra.push(0);
-    assert!(super::verify_all(&key(0x11), &mut Cursor::new(&extra), extra.len() as u64).is_err());
+    assert!(super::verify_all(&key(0x11), &mut Cursor::new(&extra)).is_err());
 }
 
 #[test]
@@ -332,9 +289,8 @@ fn swapped_and_foreign_chunks_fail_authentication() {
 #[test]
 fn impossible_layouts_are_rejected() {
     use super::format::layout;
-    assert!(layout(HEADER_SIZE + EOF_SIZE + FULL_RECORD_SIZE + 1).is_err());
-    assert!(layout(HEADER_SIZE).is_err());
-    assert_eq!(layout(HEADER_SIZE + EOF_SIZE).unwrap().plain_len, 0);
+    assert_eq!(layout(0).unwrap().plain_len, 0);
+    assert!(layout(u64::MAX).is_err());
     assert!(super::format::physical_offset(u64::MAX).is_err());
 }
 
@@ -343,28 +299,22 @@ fn matches_fixed_vectors() {
     let vectors = [
         (
             &b""[..],
-            "4e5350450142424242424242424242424242424242784f83188d1a74a198830bd28ccca70f",
+            "4e53504501424242424242424242424242424242420000000000000000c709456d7dcc7eacdcfc0d5624987a2f",
         ),
         (
             &b"a"[..],
-            "4e53504501424242424242424242424242424242427a68bacb13e11f2a3262f65c572a4c325d3e5ee39fe12f44c1aa2820ec94342dc0",
+            "4e535045014242424242424242424242424242424200000000000000017a6746831a612e2f3635553f3843642dabe29349c78a10ba038e34e80963ba68fe",
         ),
         (
             &b"0123456789abcdef"[..],
-            "4e53504501424242424242424242424242424242422b273274cde617d56a372b9de1310564624680496b5c0afdd6b4587729b42b020d9305feb98528a975d21c8a7ae3ce11",
+            "4e535045014242424242424242424242424242424200000000000000102b273274cde617d56a372b9de1310564ddeb80d4abb637c04c16fdf47b4cc79b5c04bd9032e7f3fa5cd95d870ce2540e",
         ),
     ];
     for (plain, expected) in vectors {
         assert_eq!(hex(&seal(plain)), expected);
         let encrypted = seal(plain);
         let mut decoded = Vec::new();
-        super::decrypt_content(
-            &key(0x11),
-            &mut Cursor::new(&encrypted),
-            encrypted.len() as u64,
-            &mut decoded,
-        )
-        .unwrap();
+        super::decrypt_content(&key(0x11), &mut Cursor::new(&encrypted), &mut decoded).unwrap();
         assert_eq!(decoded, plain);
     }
 }
@@ -384,6 +334,24 @@ struct Short<'a> {
     pos: usize,
     steps: [usize; 4],
     step: usize,
+}
+
+impl Seek for Short<'_> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let next = match pos {
+            SeekFrom::Start(offset) => offset as i64,
+            SeekFrom::End(offset) => self.data.len() as i64 + offset,
+            SeekFrom::Current(offset) => self.pos as i64 + offset,
+        };
+        if next < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seek before the start",
+            ));
+        }
+        self.pos = next as usize;
+        Ok(self.pos as u64)
+    }
 }
 
 impl Read for Short<'_> {

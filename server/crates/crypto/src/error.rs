@@ -6,7 +6,7 @@ use crate::{content::ContentError, filename::FilenameError};
 
 #[derive(Debug, Error)]
 pub enum EncryptError {
-    #[error("writing the encrypted file failed")]
+    #[error("writing the file failed")]
     Io(#[from] io::Error),
 
     #[error(transparent)]

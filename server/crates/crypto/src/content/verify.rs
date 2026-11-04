@@ -14,16 +14,17 @@ use super::{
 /// Check the header, the stored chunk tags, and the end-of-file authenticator.
 ///
 /// This does not read chunk ciphertext, so it does not prove the file contents are intact.
-pub fn verify_tag_sequence<R: Read + Seek>(
-    key: &Key,
-    file: &mut R,
-    file_len: u64,
-) -> Result<(), ContentError> {
-    let layout = format::layout(file_len)?;
-    let mut header = [0; format::HEADER_SIZE as usize];
+pub fn verify_tag_sequence<R: Read + Seek>(key: &Key, file: &mut R) -> Result<(), ContentError> {
     file.seek(SeekFrom::Start(0))?;
+    let mut header = [0; format::HEADER_SIZE as usize];
     file.read_exact(&mut header).map_err(short_read)?;
     format::check_header(&header)?;
+    let layout = format::layout(format::plain_len(&header))?;
+    let eof_at = format::eof_offset(&layout)?;
+    let end = file.seek(SeekFrom::End(0))?;
+    if end != eof_at.checked_add(EOF_SIZE).ok_or(ContentError::Layout)? {
+        return Err(ContentError::Layout);
+    }
     let derived = keys::derive(&key.contents);
     let mut hmac = mac::start(&derived, &header);
     for index in 0..layout.chunk_count {
@@ -35,7 +36,7 @@ pub fn verify_tag_sequence<R: Read + Seek>(
         hmac.update(&tag);
     }
     let mut eof = [0; EOF_SIZE as usize];
-    file.seek(SeekFrom::Start(file_len - EOF_SIZE))?;
+    file.seek(SeekFrom::Start(eof_at))?;
     file.read_exact(&mut eof).map_err(short_read)?;
     mac::matches(
         &eof,
@@ -44,13 +45,15 @@ pub fn verify_tag_sequence<R: Read + Seek>(
 }
 
 /// Authenticate every chunk and the end-of-file authenticator.
-pub fn verify_all<R: Read + Seek>(
-    key: &Key,
-    file: &mut R,
-    file_len: u64,
-) -> Result<(), ContentError> {
+pub fn verify_all<R: Read + Seek>(key: &Key, file: &mut R) -> Result<(), ContentError> {
     file.seek(SeekFrom::Start(0))?;
-    decrypt(key, file, file_len, &mut sink())
+    decrypt(key, file, &mut sink())?;
+    let pos = file.stream_position()?;
+    let end = file.seek(SeekFrom::End(0))?;
+    if pos != end {
+        return Err(ContentError::Layout);
+    }
+    Ok(())
 }
 
 fn short_read(error: std::io::Error) -> ContentError {

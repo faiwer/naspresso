@@ -19,10 +19,9 @@ use super::{
 pub fn decrypt<R: Read, W: Write>(
     key: &Key,
     encrypted: &mut R,
-    encrypted_len: u64,
     plaintext: &mut W,
 ) -> Result<(), ContentError> {
-    let (head, layout) = read_header(encrypted, encrypted_len)?;
+    let (head, layout) = read_header(encrypted)?;
     let derived = keys::derive(&key.contents);
     let mut hmac = mac::start(&derived, &head);
     for index in 0..layout.chunk_count {
@@ -60,10 +59,7 @@ struct Cached {
 // Own ContentFile methods.
 impl<R: Read + Seek> ContentFile<R> {
     pub fn open(key: &Key, mut inner: R) -> Result<Self, ContentError> {
-        // A trick to get the file length. It doesn't read the disk.
-        let len = inner.seek(SeekFrom::End(0))?;
-        inner.seek(SeekFrom::Start(0))?;
-        let (header, layout) = read_header(&mut inner, len)?;
+        let (header, layout) = read_header(&mut inner)?;
         Ok(Self {
             inner,
             keys: keys::derive(&key.contents),
@@ -140,12 +136,11 @@ impl<R: Read + Seek> Seek for ContentFile<R> {
 
 fn read_header<R: Read>(
     reader: &mut R,
-    file_len: u64,
 ) -> Result<([u8; HEADER_SIZE as usize], Layout), ContentError> {
-    let layout = format::layout(file_len)?;
     let mut header = [0; HEADER_SIZE as usize];
     read_exact(reader, &mut header)?;
     format::check_header(&header)?;
+    let layout = format::layout(format::plain_len(&header))?;
     Ok((header, layout))
 }
 

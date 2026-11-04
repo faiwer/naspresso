@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
 
 use crate::Key;
 
@@ -55,12 +55,10 @@ enum Advance {
 
 impl<R: AsyncRead + AsyncSeek + Unpin> AsyncContentFile<R> {
     pub async fn open(key: &Key, mut inner: R) -> Result<Self, ContentError> {
-        let len = inner.seek(SeekFrom::End(0)).await?;
-        inner.seek(SeekFrom::Start(0)).await?;
         let mut header = [0; HEADER_SIZE as usize];
         read_exact(&mut inner, &mut header).await?;
         format::check_header(&header)?;
-        let layout = format::layout(len)?;
+        let layout = format::layout(format::plain_len(&header))?;
         Ok(Self {
             inner,
             keys: keys::derive(&key.contents),
