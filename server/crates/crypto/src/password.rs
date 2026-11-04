@@ -8,8 +8,8 @@ const DIGEST: usize = 32;
 const MEMORY_KIB: u32 = 19_456;
 const ITERATIONS: u32 = 20;
 const LANES: u32 = 1;
-const NAMES_SALT: &[u8] = b"nasspresso-names-v1";
-const CONTENTS_SALT: &[u8] = b"nasspresso-contents-v1";
+const NAMES_SALT: &[u8] = b"naspresso-names-v1";
+const CONTENTS_SALT: &[u8] = b"naspresso-contents-v1";
 
 /// Argon2id digests of the password, split for file names and file contents.
 #[derive(PartialEq, Eq)]
@@ -20,8 +20,8 @@ pub struct Key {
 
 /// Hash the password into a [`Key`].
 ///
-/// `names` is Argon2id of `password[0..31]` with salt `nasspresso-names-v1`.
-/// `contents` is Argon2id of `password[0..63]` with salt `nasspresso-contents-v1`.
+/// `names` is Argon2id of `password[0..31]` with salt `naspresso-names-v1`.
+/// `contents` is Argon2id of `password[0..63]` with salt `naspresso-contents-v1`.
 pub fn prepare(password: &str) -> Result<Key, PasswordError> {
     validate_password(password)?;
     let bytes = password.as_bytes();
