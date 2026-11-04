@@ -47,6 +47,9 @@ export const StorageEntryIo = z.discriminatedUnion("kind", [
   StorageFileIo,
 ]);
 
+/** `GET /storage/ls` `encryption`. */
+export const EncryptionIo = z.enum(["none", "locked", "unlocked"]);
+
 /** A page of `GET /storage/ls`. */
 export const StorageListPageIo = z.object({
   items: z.array(StorageEntryIo),
@@ -54,6 +57,8 @@ export const StorageListPageIo = z.object({
   nextCursor: z.string().nullable(),
   /** Entries in the whole directory, across all pages. */
   total: z.number(),
+  /** `none` outside an `.nped` directory. `locked` or `unlocked` from its cookie. */
+  encryption: EncryptionIo,
 });
 
 export type Hdr = z.infer<typeof HdrIo>;
@@ -61,4 +66,5 @@ export type ImageMetadata = z.infer<typeof ImageMetadataIo>;
 export type StorageDir = z.infer<typeof StorageDirIo>;
 export type StorageFile = z.infer<typeof StorageFileIo>;
 export type StorageEntry = z.infer<typeof StorageEntryIo>;
+export type Encryption = z.infer<typeof EncryptionIo>;
 export type StorageListPage = z.infer<typeof StorageListPageIo>;

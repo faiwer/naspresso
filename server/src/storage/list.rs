@@ -7,6 +7,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use media::{ImageMetadata, is_image_path, probe_file};
+use serde::Serialize;
 
 use super::{
     Dir, Entry, EntryKind, File, StorageError,
@@ -24,6 +25,17 @@ pub struct ListPage {
     /// Metadata for files this page had to open. The caller stores it after
     /// returning the page; reading the page does not.
     pub pending: Vec<Pending>,
+    /// Whether `dir` sits inside an `.nped` directory, and whether that directory is open.
+    pub encryption: Encryption,
+}
+
+/// `none` outside an `.nped` directory. `locked` and `unlocked` say whether that directory is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Encryption {
+    None,
+    Locked,
+    Unlocked,
 }
 
 /// An entry's place in the listing order: directories first, then by name
@@ -53,13 +65,16 @@ pub async fn list_dir(
     dir: &Path,
     after: Option<EntryKey>,
     limit: usize,
+    encryption: Encryption,
     has_preview: impl Fn(&Path, SystemTime) -> bool + Send + 'static,
 ) -> Result<ListPage, StorageError> {
     let dir = dir.to_path_buf();
     // One blocking-pool handoff for the whole listing instead of one per syscall.
-    tokio::task::spawn_blocking(move || list_dir_blocking(&dir, after, limit, &has_preview))
-        .await
-        .map_err(|e| StorageError::Io(io::Error::other(e)))?
+    tokio::task::spawn_blocking(move || {
+        list_dir_blocking(&dir, after, limit, encryption, &has_preview)
+    })
+    .await
+    .map_err(|e| StorageError::Io(io::Error::other(e)))?
 }
 
 /// The order of [`EntryKey`]; the folded name is computed once, not per comparison.
@@ -90,6 +105,7 @@ fn list_dir_blocking(
     dir: &Path,
     after: Option<EntryKey>,
     limit: usize,
+    encryption: Encryption,
     has_preview: &HasPreview,
 ) -> Result<ListPage, StorageError> {
     let mut keys = read_keys(dir)?;
@@ -120,6 +136,7 @@ fn list_dir_blocking(
         has_more: remaining.next().is_some(),
         total,
         pending,
+        encryption,
     })
 }
 
@@ -299,7 +316,7 @@ mod tests {
     }
 
     fn list(dir: &Path, after: Option<EntryKey>, limit: usize) -> Result<ListPage, StorageError> {
-        list_dir_blocking(dir, after, limit, &|_, _| false)
+        list_dir_blocking(dir, after, limit, Encryption::None, &|_, _| false)
     }
 
     fn names(entries: &[Entry]) -> Vec<&str> {
