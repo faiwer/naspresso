@@ -4,38 +4,48 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, copy};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::io::SyncIoBridge;
 
-use crate::{EncryptError, FilenameError, Key, encrypt_filename};
+use crate::{EncryptError, FilenameError, Key, encrypt_content, encrypt_filename};
 
 /// Ciphertext written for one input file.
 pub struct EncryptedFile {
-    /// Bytes written to [`Self::file_name`].
-    pub size: u64,
     /// Encrypted file name, with a `.npe` suffix. The directory is the caller's.
     pub file_name: PathBuf,
 }
 
-/// Copy `reader` into an encrypted `<name>.npe` through `open_writer`.
+/// Encrypt `reader` into an `<name>.npe` through `open_writer`.
 ///
-/// `open_writer` receives that file name. `key.names` encrypts it.
+/// `open_writer` receives that file name. `key.names` encrypts the name and
+/// `key.contents` encrypts the bytes. A failure can leave a partial ciphertext
+/// in the writer; publish that output only after this returns [`Ok`].
 pub async fn encrypt<R, W, Fut>(
     file_path: impl AsRef<Path>,
     key: &Key,
-    mut reader: R,
+    reader: R,
     open_writer: impl FnOnce(PathBuf) -> Fut,
 ) -> Result<EncryptedFile, EncryptError>
 where
-    R: AsyncRead + Unpin,
+    R: AsyncRead + Unpin + Send + 'static,
     Fut: Future<Output = io::Result<W>>,
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + Send + 'static,
 {
     let file_name = encrypted_name(file_path.as_ref(), key)?;
-    let mut writer = open_writer(file_name.clone()).await?;
-    let size = copy(&mut reader, &mut writer).await?;
-    writer.shutdown().await?;
+    let writer = open_writer(file_name.clone()).await?;
+    let key = key.clone();
+    // The bridge blocks on the runtime, so the encryption runs off the runtime thread.
+    let mut reader = SyncIoBridge::new(reader);
+    let mut writer = SyncIoBridge::new(writer);
+    tokio::task::spawn_blocking(move || -> Result<(), EncryptError> {
+        encrypt_content(&key, &mut reader, &mut writer)?;
+        writer.shutdown()?;
+        Ok(())
+    })
+    .await
+    .map_err(io::Error::other)??;
 
-    Ok(EncryptedFile { size, file_name })
+    Ok(EncryptedFile { file_name })
 }
 
 fn encrypted_name(file_path: &Path, key: &Key) -> Result<PathBuf, EncryptError> {
@@ -78,8 +88,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn copies_reader_to_npe_name() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn encrypts_reader_into_an_npe_name() {
         let source = b"album bytes";
         let captured = Arc::new(Mutex::new(Vec::new()));
         let key = Key {
@@ -106,8 +116,17 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(encrypted.size, source.len() as u64);
+        let bytes = captured.lock().expect("writer lock").clone();
         assert_eq!(encrypted.file_name, expected);
-        assert_eq!(*captured.lock().expect("writer lock"), source);
+        assert_ne!(bytes, source);
+        let mut decoded = Vec::new();
+        crate::decrypt_content(
+            &key,
+            &mut io::Cursor::new(&bytes),
+            bytes.len() as u64,
+            &mut decoded,
+        )
+        .unwrap();
+        assert_eq!(decoded, source);
     }
 }

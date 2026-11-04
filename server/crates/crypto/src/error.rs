@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::filename::FilenameError;
+use crate::{content::ContentError, filename::FilenameError};
 
 #[derive(Debug, Error)]
 pub enum EncryptError {
@@ -11,6 +11,18 @@ pub enum EncryptError {
 
     #[error(transparent)]
     Filename(#[from] FilenameError),
+
+    #[error(transparent)]
+    Content(ContentError),
+}
+
+impl From<ContentError> for EncryptError {
+    fn from(error: ContentError) -> Self {
+        match error {
+            ContentError::Io(error) => EncryptError::Io(error),
+            other => EncryptError::Content(other),
+        }
+    }
 }
 
 #[derive(Debug, Error)]

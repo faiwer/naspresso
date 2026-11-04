@@ -12,7 +12,7 @@ const NAMES_SALT: &[u8] = b"naspresso-names-v1";
 const CONTENTS_SALT: &[u8] = b"naspresso-contents-v1";
 
 /// Argon2id digests of the password, split for file names and file contents.
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Key {
     pub names: [u8; DIGEST],
     pub contents: [u8; DIGEST],

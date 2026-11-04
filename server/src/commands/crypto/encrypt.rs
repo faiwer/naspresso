@@ -26,7 +26,6 @@ pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
         bail!("{file_path} has no directory");
     };
 
-    // The ciphertext does not use a key yet.
     let encrypted = crypto::encrypt(&path, &key, opened.file, {
         let directory = directory.clone();
         move |file_name| {
@@ -42,11 +41,7 @@ pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("renaming {}", dest.display()))?;
 
-    println!(
-        "{} {}",
-        encrypted.size,
-        directory.join(&encrypted.file_name).display()
-    );
+    println!("{}", directory.join(&encrypted.file_name).display());
     Ok(())
 }
 
