@@ -11,6 +11,7 @@ mod xattr;
 pub use entities::{Dir, Entry, EntryKind, File};
 pub use error::StorageError;
 pub use list::{Encryption, EntryKey, list_dir};
+pub(crate) use mime::{SNIFF_LEN, sniff_mime};
 pub use path::resolve;
 pub use read::open_file;
 pub(crate) use xattr::write_records;

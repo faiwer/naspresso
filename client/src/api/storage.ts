@@ -1,5 +1,10 @@
 import { joinPath } from "../core/helpers/path";
-import { apiGet, buildApiUrl, type ApiRequestOptions } from "./core";
+import {
+  apiGet,
+  buildApiUrl,
+  encodePath,
+  type ApiRequestOptions,
+} from "./core";
 import type { StorageEntry } from "./storage.io";
 import { StorageListPageIo, type StorageListPage } from "./storage.io";
 
@@ -16,9 +21,11 @@ export const getListStorage = (
     query: { path, cursor: cursor ?? undefined, limit },
   });
 
-/** URL of `GET /storage/file?file=…`: the bytes of a file inside `STORAGE`, e.g. `/a/b/c.jpg`. */
+/** URL of `GET /storage/file/…`: the bytes of a file inside `STORAGE`, e.g. `/a/b/c.jpg`. */
 export const getFileUrl = (file: string, unlocked = false): string =>
-  buildApiUrl("/storage/file", { file, decode: unlocked || undefined });
+  buildApiUrl(`/storage/file/${encodePath(file)}`, {
+    decode: unlocked || undefined,
+  });
 
 /** Name on disk. A decoded file keeps that name in `originalName`. */
 export const getOriginalEntryName = (entry: StorageEntry): string =>
@@ -32,7 +39,7 @@ export const getEntryFileUrl = (
 ): string =>
   getFileUrl(
     joinPath([...parentSegments, getOriginalEntryName(entry)]),
-    unlocked,
+    entry.kind === "file" && !!entry.originalName && unlocked,
   );
 
 type ListStorageOptions = Omit<ApiRequestOptions, "query"> & {

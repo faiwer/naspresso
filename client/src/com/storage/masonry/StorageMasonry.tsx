@@ -81,7 +81,7 @@ export const StorageMasonry = ({
                 key={getOriginalEntryName(entry)}
                 entry={entry}
                 index={index}
-                segments={[...segments, getOriginalEntryName(entry)]}
+                segments={segments}
                 openImage={openImage}
                 encryption={encryption}
               />

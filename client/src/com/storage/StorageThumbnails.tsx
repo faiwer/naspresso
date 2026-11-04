@@ -4,7 +4,7 @@ import { useRef, type CSSProperties } from "react";
 import { Link } from "react-router";
 
 import { getPreviewSrcSet } from "../../api/media";
-import { getFileUrl, getOriginalEntryName } from "../../api/storage";
+import { getEntryFileUrl, getOriginalEntryName } from "../../api/storage";
 import type {
   ImageMetadata,
   Encryption,
@@ -41,7 +41,7 @@ export const StorageThumbnails = ({
             key={getOriginalEntryName(entry)}
             entry={entry}
             index={index}
-            segments={[...segments, getOriginalEntryName(entry)]}
+            segments={segments}
             openImage={openImage}
             encryption={encryption}
           />
@@ -56,7 +56,7 @@ export const StorageThumbnails = ({
 
 type ThumbnailProps = {
   entry: StorageEntry;
-  /** The entry's own path. */
+  /** Directory that contains `entry`. */
   segments: string[];
   /** Position in the feed. */
   index: number;
@@ -74,9 +74,10 @@ const Thumbnail = ({
   encryption,
 }: ThumbnailProps) => {
   const { name } = entry;
+  const path = [...segments, getOriginalEntryName(entry)];
   const content = (
     <>
-      <ThumbnailPreview entry={entry} file={joinPath(segments)} index={index} />
+      <ThumbnailPreview entry={entry} file={joinPath(path)} index={index} />
       <div className={styles.name} title={name}>
         {name}
       </div>
@@ -85,7 +86,7 @@ const Thumbnail = ({
 
   if (entry.kind === "dir") {
     return (
-      <Link className={styles.item} to={routes.storage(segments)}>
+      <Link className={styles.item} to={routes.storage(path)}>
         {content}
       </Link>
     );
@@ -93,7 +94,7 @@ const Thumbnail = ({
   return (
     <StorageFileLink
       className={styles.item}
-      href={getFileUrl(joinPath(segments), encryption === "unlocked")}
+      href={getEntryFileUrl(segments, entry, encryption === "unlocked")}
       onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
       {content}

@@ -47,7 +47,7 @@ The cursor is the kind and name of the last item on the page, so the next page s
 
 ### Where `mime` and `image` come from
 
-A known non-image extension is typed from the extension table. The file is not opened.
+A known non-image extension is typed from the extension table. The file is not opened. An `.npe` file is `naspresso/npe`. When a file is sniffed, a header of `NSPE` is that same type.
 
 An image extension is probed from its headers. That probe supplies both `mime` and `image`. If the headers cannot be read, the entry falls back to the extension and `image` is omitted.
 

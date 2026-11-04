@@ -11,7 +11,7 @@ use crate::{
     cancel::Cancel,
     error::AppError,
     preview::Preview,
-    routes::stream::{etag, not_modified, stream},
+    routes::stream::{CacheControl, etag, not_modified, stream},
     state::AppState,
     storage,
 };
@@ -28,7 +28,7 @@ pub async fn preview(
     let path = storage::resolve(&state.config.storage, &file).await?;
     let fingerprint = storage::open_file(&path).await?.fingerprint;
     let etag = etag(&fingerprint);
-    if let Some(response) = not_modified(&headers, &etag) {
+    if let Some(response) = not_modified(&headers, &etag, CacheControl::Revalidate) {
         return Ok(response);
     }
 
@@ -42,10 +42,17 @@ pub async fn preview(
             avif.len,
             "image/avif",
             etag,
+            CacheControl::Revalidate,
         ),
         Preview::Fresh(avif) => {
             let len = avif.len() as u64;
-            stream(Body::from(avif), len, "image/avif", etag)
+            stream(
+                Body::from(avif),
+                len,
+                "image/avif",
+                etag,
+                CacheControl::Revalidate,
+            )
         }
     })
 }

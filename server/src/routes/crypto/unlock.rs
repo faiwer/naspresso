@@ -14,8 +14,8 @@ use crate::{
     storage,
 };
 
-// 15 minutes. Cookie expiration time.
-const MAX_AGE: i64 = 15 * 60;
+/// How long an unlock cookie and a decrypted file response may live.
+pub(crate) const COOKIE_MAX_AGE: i64 = 15 * 60;
 
 #[derive(Deserialize)]
 pub(super) struct UnlockRequest {
@@ -58,7 +58,7 @@ pub(super) async fn unlock(
 
     let value = crypto::seal(state.config.npe_seal_key.as_bytes(), &key)?;
     let mut response = Json(UnlockResponse {
-        expired_at: Some(Utc::now() + Duration::seconds(MAX_AGE)),
+        expired_at: Some(Utc::now() + Duration::seconds(COOKIE_MAX_AGE)),
         unlocked: true,
         error: None,
     })
@@ -88,7 +88,7 @@ fn cookie_header(name: &str, value: &str, path: &str) -> Result<HeaderValue, App
         .http_only(true)
         .same_site(cookie::SameSite::Lax)
         .path(path)
-        .max_age(cookie::time::Duration::seconds(MAX_AGE))
+        .max_age(cookie::time::Duration::seconds(COOKIE_MAX_AGE))
         .build();
     HeaderValue::from_str(&cookie.to_string())
         .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))

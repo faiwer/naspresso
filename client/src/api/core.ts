@@ -33,6 +33,14 @@ export const apiPost = async <T extends z.ZodType>(
 export const buildApiUrl = (path: string, query?: ApiQuery): string =>
   API_ROOT + buildPath(path, query);
 
+/** Encodes each segment, keeping the slashes between them. */
+export const encodePath = (path: string): string =>
+  path
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map(encodeURIComponent)
+    .join("/");
+
 /**
  * Query-string values. `undefined` is dropped. Keys are camelCase here and
  * snake_cased at the wire boundary, like response bodies.

@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import { getFileUrl } from "../../../api/storage";
+import { getEntryFileUrl, getOriginalEntryName } from "../../../api/storage";
 import type {
   Encryption,
   StorageEntry,
@@ -16,7 +16,7 @@ import styles from "./StorageMasonry.module.css";
 
 type TileProps = {
   entry: StorageEntry;
-  /** The entry's own path. */
+  /** Directory that contains `entry`. */
   segments: string[];
   /** Position in the feed. */
   index: number;
@@ -33,15 +33,16 @@ export const Tile = ({
   openImage,
   encryption,
 }: TileProps) => {
+  const path = [...segments, getOriginalEntryName(entry)];
   const preview = (
-    <TilePreview entry={entry} file={joinPath(segments)} index={index} />
+    <TilePreview entry={entry} file={joinPath(path)} index={index} />
   );
 
   if (entry.kind === "dir") {
     return (
       <Link
         className={styles.item}
-        to={routes.storage(segments)}
+        to={routes.storage(path)}
         title={entry.name}
       >
         {preview}
@@ -51,7 +52,7 @@ export const Tile = ({
   return (
     <StorageFileLink
       className={styles.item}
-      href={getFileUrl(joinPath(segments), encryption === "unlocked")}
+      href={getEntryFileUrl(segments, entry, encryption === "unlocked")}
       title={entry.name}
       onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
