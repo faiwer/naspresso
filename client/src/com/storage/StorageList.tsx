@@ -1,8 +1,12 @@
 import { Skeleton } from "antd";
 import { Link } from "react-router";
 
-import { getEntryFileUrl } from "../../api/storage";
-import type { StorageEntry, StorageFile } from "../../api/storage.io";
+import { getOriginalEntryName, getEntryFileUrl } from "../../api/storage";
+import type {
+  Encryption,
+  StorageEntry,
+  StorageFile,
+} from "../../api/storage.io";
 import { range } from "../../core/helpers/array";
 import { routes } from "../../core/routes";
 import { StorageFileLink } from "./StorageFileLink";
@@ -13,17 +17,18 @@ export const StorageList = ({
   entries,
   skeletons,
   openImage,
+  encryption,
 }: StorageViewProps) => (
   <ol>
     {entries.map((entry) => (
-      <li key={entry.name}>
+      <li key={getOriginalEntryName(entry)}>
         {entry.kind === "dir" ? (
-          <Link to={routes.storage([...segments, entry.name])}>
+          <Link to={routes.storage([...segments, getOriginalEntryName(entry)])}>
             {entry.name}
           </Link>
         ) : (
           <StorageFileLink
-            href={getEntryFileUrl(segments, entry.name)}
+            href={getEntryFileUrl(segments, entry, encryption === "unlocked")}
             onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
           >
             {entry.name}
@@ -50,4 +55,6 @@ export type StorageViewProps = {
   scrollContainer: HTMLElement;
   /** Opens an image in the preview modal, among the images in `entries`. */
   openImage: (file: StorageFile) => void;
+  /** The encryption status of the directory. */
+  encryption: Encryption;
 };

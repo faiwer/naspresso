@@ -1,5 +1,6 @@
 import { joinPath } from "../core/helpers/path";
 import { apiGet, buildApiUrl, type ApiRequestOptions } from "./core";
+import type { StorageEntry } from "./storage.io";
 import { StorageListPageIo, type StorageListPage } from "./storage.io";
 
 /**
@@ -16,14 +17,23 @@ export const getListStorage = (
   });
 
 /** URL of `GET /storage/file?file=…`: the bytes of a file inside `STORAGE`, e.g. `/a/b/c.jpg`. */
-export const getFileUrl = (file: string): string =>
-  buildApiUrl("/storage/file", { file });
+export const getFileUrl = (file: string, unlocked = false): string =>
+  buildApiUrl("/storage/file", { file, decode: unlocked || undefined });
 
-/** {@link getFileUrl} for `fileName` inside the directory given as `parentSegments`. */
+/** Name on disk. A decoded file keeps that name in `originalName`. */
+export const getOriginalEntryName = (entry: StorageEntry): string =>
+  entry.kind === "file" ? (entry.originalName ?? entry.name) : entry.name;
+
+/** {@link getFileUrl} for `entry` inside the directory given as `parentSegments`. */
 export const getEntryFileUrl = (
   parentSegments: string[],
-  fileName: string,
-): string => getFileUrl(joinPath([...parentSegments, fileName]));
+  entry: StorageEntry,
+  unlocked = false,
+): string =>
+  getFileUrl(
+    joinPath([...parentSegments, getOriginalEntryName(entry)]),
+    unlocked,
+  );
 
 type ListStorageOptions = Omit<ApiRequestOptions, "query"> & {
   /** `nextCursor` of the previous page; `null` for the first one. */

@@ -1,7 +1,7 @@
 import { useState, useStableCallback } from "react";
 
 import { getListStorage } from "../../api/storage";
-import type { StorageEntry } from "../../api/storage.io";
+import type { Encryption, StorageEntry } from "../../api/storage.io";
 import { useAsyncEffect } from "../../core/hooks/useAsyncEffect";
 
 /** Small on purpose, to exercise paging; the server's default is 30. */
@@ -20,6 +20,8 @@ export type StorageFeed = {
   loadMore: () => void;
   /** Requests the failed page again. */
   retry: () => void;
+  /** The encryption status of the directory. */
+  encryption: Encryption;
 };
 
 /**
@@ -46,6 +48,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
             ...prev,
             items: [...prev.items, ...page.items],
             total: page.total,
+            encryption: page.encryption,
             nextCursor: page.nextCursor,
             isLoading: false,
           }));
@@ -77,6 +80,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
   return {
     items: state.items,
     total: state.total,
+    encryption: state.encryption,
     isLoading: state.isLoading,
     error: state.error,
     canLoadMore,
@@ -88,6 +92,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
 type FeedState = {
   items: StorageEntry[];
   total: number | null;
+  encryption: Encryption;
   /** The page being fetched or last fetched; `null` for the first one. */
   cursor: string | null;
   /** The page after `items`; `null` on the last page and before the first one arrives. */
@@ -99,6 +104,7 @@ type FeedState = {
 const INITIAL_STATE: FeedState = {
   items: [],
   total: null,
+  encryption: "none",
   cursor: null,
   nextCursor: null,
   isLoading: true,

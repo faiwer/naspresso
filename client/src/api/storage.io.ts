@@ -39,6 +39,8 @@ export const StorageFileIo = StorageEntryBaseIo.extend({
   image: ImageMetadataIo.nullable(),
   /** Previews of this version are cached, so asking for one won't wait for a render. */
   hasPreview: z.boolean(),
+  /** On-disk name when `name` is decoded. `null` for a normal file. */
+  originalName: z.string().nullable(),
 });
 
 /** One entry of `GET /storage/ls`. */

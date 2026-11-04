@@ -1,7 +1,11 @@
 import { Link } from "react-router";
 
 import { getFileUrl } from "../../../api/storage";
-import type { StorageEntry, StorageFile } from "../../../api/storage.io";
+import type {
+  Encryption,
+  StorageEntry,
+  StorageFile,
+} from "../../../api/storage.io";
 import { joinPath } from "../../../core/helpers/path";
 import { routes } from "../../../core/routes";
 import { StorageFileLink } from "../StorageFileLink";
@@ -18,9 +22,17 @@ type TileProps = {
   index: number;
   /** Opens an image in the preview modal. */
   openImage: (file: StorageFile) => void;
+  /** The encryption status of the directory. */
+  encryption: Encryption;
 };
 
-export const Tile = ({ entry, segments, index, openImage }: TileProps) => {
+export const Tile = ({
+  entry,
+  segments,
+  index,
+  openImage,
+  encryption,
+}: TileProps) => {
   const preview = (
     <TilePreview entry={entry} file={joinPath(segments)} index={index} />
   );
@@ -39,7 +51,7 @@ export const Tile = ({ entry, segments, index, openImage }: TileProps) => {
   return (
     <StorageFileLink
       className={styles.item}
-      href={getFileUrl(joinPath(segments))}
+      href={getFileUrl(joinPath(segments), encryption === "unlocked")}
       title={entry.name}
       onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >

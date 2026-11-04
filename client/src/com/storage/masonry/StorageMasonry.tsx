@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { getOriginalEntryName } from "../../../api/storage";
 import { rootFontSize } from "../../../core/helpers/browser";
 import {
   PreviewQueueProvider,
@@ -24,6 +25,7 @@ export const StorageMasonry = ({
   skeletons,
   scrollContainer,
   openImage,
+  encryption,
 }: StorageViewProps) => {
   const queue = usePreviewQueue(scrollContainer);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -76,11 +78,12 @@ export const StorageMasonry = ({
           <div key={col} className={styles.column}>
             {column.map(({ entry, index }) => (
               <Tile
-                key={entry.name}
+                key={getOriginalEntryName(entry)}
                 entry={entry}
                 index={index}
-                segments={[...segments, entry.name]}
+                segments={[...segments, getOriginalEntryName(entry)]}
                 openImage={openImage}
+                encryption={encryption}
               />
             ))}
             {(skeletonSlots[col] ?? []).map((index) => (

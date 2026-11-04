@@ -45,6 +45,7 @@ export const StorageListing = ({
         skeletons={skeletons}
         scrollContainer={scrollContainer}
         openImage={openImage}
+        encryption={feed.encryption}
       />
       {feed.error && <ErrorToast error={feed.error} onRetry={feed.retry} />}
       {/* Unmounted while a page loads, so each page gets a fresh observer. */}

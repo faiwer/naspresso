@@ -1,7 +1,7 @@
 import { Skeleton, Table, type TableColumnsType } from "antd";
 import { Link } from "react-router";
 
-import { getEntryFileUrl } from "../../api/storage";
+import { getOriginalEntryName, getEntryFileUrl } from "../../api/storage";
 import { range } from "../../core/helpers/array";
 import { formatDateTime } from "../../core/helpers/date";
 import { getExtension } from "../../core/helpers/path";
@@ -17,15 +17,22 @@ export const StorageTable = ({
   entries,
   skeletons,
   openImage,
+  encryption,
 }: StorageViewProps) => {
   const rows: Row[] = entries.map((entry) => ({
-    key: entry.name,
+    key: getOriginalEntryName(entry),
     isSkeleton: false,
     name: entry.name,
     ext: entry.kind === "file" ? getExtension(entry.name) : "",
     createdAt: entry.createdAt,
-    to: entry.kind === "dir" ? routes.storage([...segments, entry.name]) : null,
-    href: entry.kind === "file" ? getEntryFileUrl(segments, entry.name) : null,
+    to:
+      entry.kind === "dir"
+        ? routes.storage([...segments, getOriginalEntryName(entry)])
+        : null,
+    href:
+      entry.kind === "file"
+        ? getEntryFileUrl(segments, entry, encryption === "unlocked")
+        : null,
     onPreview: isPreviewImage(entry) ? () => openImage(entry) : null,
   }));
   for (const index of range(skeletons)) {

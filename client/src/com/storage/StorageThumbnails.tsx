@@ -4,9 +4,10 @@ import { useRef, type CSSProperties } from "react";
 import { Link } from "react-router";
 
 import { getPreviewSrcSet } from "../../api/media";
-import { getFileUrl } from "../../api/storage";
+import { getFileUrl, getOriginalEntryName } from "../../api/storage";
 import type {
   ImageMetadata,
+  Encryption,
   StorageEntry,
   StorageFile,
 } from "../../api/storage.io";
@@ -29,6 +30,7 @@ export const StorageThumbnails = ({
   skeletons,
   scrollContainer,
   openImage,
+  encryption,
 }: StorageViewProps) => {
   const queue = usePreviewQueue(scrollContainer);
   return (
@@ -36,11 +38,12 @@ export const StorageThumbnails = ({
       <div className={styles.grid}>
         {entries.map((entry, index) => (
           <Thumbnail
-            key={entry.name}
+            key={getOriginalEntryName(entry)}
             entry={entry}
             index={index}
-            segments={[...segments, entry.name]}
+            segments={[...segments, getOriginalEntryName(entry)]}
             openImage={openImage}
+            encryption={encryption}
           />
         ))}
         {range(skeletons).map((index) => (
@@ -59,9 +62,17 @@ type ThumbnailProps = {
   index: number;
   /** Opens an image in the preview modal. */
   openImage: (file: StorageFile) => void;
+  /** The encryption status of the directory. */
+  encryption: Encryption;
 };
 
-const Thumbnail = ({ entry, segments, index, openImage }: ThumbnailProps) => {
+const Thumbnail = ({
+  entry,
+  segments,
+  index,
+  openImage,
+  encryption,
+}: ThumbnailProps) => {
   const { name } = entry;
   const content = (
     <>
@@ -82,7 +93,7 @@ const Thumbnail = ({ entry, segments, index, openImage }: ThumbnailProps) => {
   return (
     <StorageFileLink
       className={styles.item}
-      href={getFileUrl(joinPath(segments))}
+      href={getFileUrl(joinPath(segments), encryption === "unlocked")}
       onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
       {content}
