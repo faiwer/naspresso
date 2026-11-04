@@ -95,6 +95,7 @@ const Thumbnail = ({
     <StorageFileLink
       className={styles.item}
       href={getEntryFileUrl(segments, entry, encryption === "unlocked")}
+      download={entry.name}
       onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
       {content}

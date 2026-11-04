@@ -29,6 +29,7 @@ export const StorageList = ({
         ) : (
           <StorageFileLink
             href={getEntryFileUrl(segments, entry, encryption === "unlocked")}
+            download={entry.name}
             onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
           >
             {entry.name}

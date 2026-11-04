@@ -4,6 +4,8 @@ import { isPlainClick } from "../../core/helpers/mouse";
 
 type StorageFileLinkProps = {
   href: string;
+  /** Name the browser uses when this link downloads the file. */
+  download: string;
   className?: string;
   title?: string;
   /** Plain click opens the preview; a modified click follows `href`. */
@@ -14,6 +16,7 @@ type StorageFileLinkProps = {
 /** A file's anchor. `onPreview` handles an unmodified click; any other click follows `href`. */
 export const StorageFileLink = ({
   href,
+  download,
   className,
   title,
   onPreview,
@@ -22,6 +25,7 @@ export const StorageFileLink = ({
   <a
     className={className}
     href={href}
+    download={download}
     title={title}
     target="_blank"
     rel="noreferrer"

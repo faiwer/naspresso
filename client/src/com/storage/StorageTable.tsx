@@ -96,7 +96,11 @@ const COLUMNS: TableColumnsType<Row> = [
       }
       if (row.href != null) {
         return (
-          <StorageFileLink href={row.href} onPreview={row.onPreview}>
+          <StorageFileLink
+            href={row.href}
+            download={name}
+            onPreview={row.onPreview}
+          >
             {name}
           </StorageFileLink>
         );

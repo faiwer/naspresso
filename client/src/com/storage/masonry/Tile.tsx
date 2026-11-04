@@ -53,6 +53,7 @@ export const Tile = ({
     <StorageFileLink
       className={styles.item}
       href={getEntryFileUrl(segments, entry, encryption === "unlocked")}
+      download={entry.name}
       title={entry.name}
       onPreview={isPreviewImage(entry) ? () => openImage(entry) : null}
     >
