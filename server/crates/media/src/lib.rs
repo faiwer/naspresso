@@ -21,4 +21,4 @@ mod webp;
 mod yuv;
 
 pub use metadata::{Hdr, ImageMetadata};
-pub use probe::{Probe, is_image_path, probe_file};
+pub use probe::{Probe, is_image_path, probe_file, probe_reader};

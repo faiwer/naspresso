@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{self, BufRead, BufReader, Seek, SeekFrom},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -27,13 +27,29 @@ pub fn probe_file(path: &Path) -> io::Result<Option<Probe>> {
     if image_extension_mime(path).is_none() {
         return Ok(None);
     }
-    match probe_image(path) {
-        Ok(probe) => Ok(Some(probe)),
-        Err(e) => {
-            tracing::debug!(error = %e, path = %path.display(), "can't open an image");
-            Err(e)
-        }
+    let file = open(path).inspect_err(
+        |e| tracing::debug!(error = %e, path = %path.display(), "can't open an image"),
+    )?;
+    disable_read_ahead(&file);
+    probe_reader(path, BufReader::with_capacity(SNIFF_LEN, file))
+}
+
+/// [`probe_file`] for a reader already at the start of the plaintext. `name`
+/// supplies the extension; it does not have to be the file that was opened.
+pub fn probe_reader<R: Read + Seek>(
+    name: &Path,
+    mut reader: BufReader<R>,
+) -> io::Result<Option<Probe>> {
+    if image_extension_mime(name).is_none() {
+        return Ok(None);
     }
+    let mime = image_mime(reader.fill_buf()?, name);
+    let image = read_image(&mut reader, mime)
+        .inspect_err(
+            |e| tracing::debug!(error = %e, path = %name.display(), "unreadable image header"),
+        )
+        .ok();
+    Ok(Some(Probe { mime, image }))
 }
 
 /// Magic bytes, or the image extension when those bytes aren't a known type.
@@ -65,19 +81,6 @@ fn image_extension_mime(path: &Path) -> Option<&'static str> {
         "jxl" => "image/jxl",
         _ => return None,
     })
-}
-
-fn probe_image(path: &Path) -> io::Result<Probe> {
-    let file = open(path)?;
-    disable_read_ahead(&file);
-    let mut reader = BufReader::with_capacity(SNIFF_LEN, file);
-    let mime = image_mime(reader.fill_buf()?, path);
-    let image = read_image(&mut reader, mime)
-        .inspect_err(
-            |e| tracing::debug!(error = %e, path = %path.display(), "unreadable image header"),
-        )
-        .ok();
-    Ok(Probe { mime, image })
 }
 
 /// Opens a regular file only: the entry was a file when listed, but may have
@@ -120,7 +123,7 @@ fn disable_read_ahead(file: &fs::File) {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn disable_read_ahead(_file: &fs::File) {}
 
-fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageMetadata> {
+fn read_image<R: Read + Seek>(reader: &mut BufReader<R>, mime: &str) -> io::Result<ImageMetadata> {
     match mime {
         "image/jpeg" => jpeg::probe::read(reader),
         "image/png" => png::probe::read(reader),
@@ -155,7 +158,7 @@ fn read_image(reader: &mut BufReader<fs::File>, mime: &str) -> io::Result<ImageM
 }
 
 /// The stored size, by the `imagesize` crate.
-fn read_size(reader: &mut BufReader<fs::File>) -> io::Result<(u32, u32)> {
+fn read_size<R: Read + Seek>(reader: &mut BufReader<R>) -> io::Result<(u32, u32)> {
     let size = imagesize::reader_size(reader).map_err(|e| io::Error::other(e.to_string()))?;
     let dimension =
         |value: usize| u32::try_from(value).map_err(|_| invalid_data("image too large"));

@@ -8,7 +8,6 @@ use super::CryptoError;
 
 const NONCE_LEN: usize = 24;
 const DIGEST: usize = 32;
-#[cfg(test)]
 const TAG_LEN: usize = 16;
 
 /// Encrypt `key` with the server seal key. The result is unpadded base64url of
@@ -39,8 +38,7 @@ fn key_bytes(key: &::crypto::Key) -> [u8; DIGEST * 2] {
 }
 
 /// Inverse of [`seal`].
-#[cfg(test)]
-pub(super) fn unseal(secret: &[u8; 32], value: &str) -> Result<::crypto::Key, CryptoError> {
+pub fn unseal(secret: &[u8; 32], value: &str) -> Result<::crypto::Key, CryptoError> {
     let packed = URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| CryptoError::Seal)?;

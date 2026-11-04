@@ -84,6 +84,12 @@ fn rejected(error: &str) -> Response {
 }
 
 fn cookie_header(name: &str, value: &str, path: &str) -> Result<HeaderValue, AppError> {
-    let header = format!("{name}={value}; HttpOnly; SameSite=Lax; Path={path}; Max-Age={MAX_AGE}");
-    HeaderValue::from_str(&header).map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
+    let cookie = cookie::Cookie::build((name, value))
+        .http_only(true)
+        .same_site(cookie::SameSite::Lax)
+        .path(path)
+        .max_age(cookie::time::Duration::seconds(MAX_AGE))
+        .build();
+    HeaderValue::from_str(&cookie.to_string())
+        .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
 }

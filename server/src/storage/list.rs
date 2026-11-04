@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     fs::{self, Metadata},
     io,
     path::Path,
@@ -6,7 +7,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use media::{ImageMetadata, is_image_path, probe_file};
+use media::{ImageMetadata, is_image_path, probe_file, probe_reader};
 use serde::Serialize;
 
 use super::{
@@ -66,32 +67,62 @@ pub async fn list_dir(
     after: Option<EntryKey>,
     limit: usize,
     encryption: Encryption,
+    key: Option<::crypto::Key>,
     has_preview: impl Fn(&Path, SystemTime) -> bool + Send + 'static,
 ) -> Result<ListPage, StorageError> {
     let dir = dir.to_path_buf();
     // One blocking-pool handoff for the whole listing instead of one per syscall.
     tokio::task::spawn_blocking(move || {
-        list_dir_blocking(&dir, after, limit, encryption, &has_preview)
+        list_dir_blocking(&dir, after, limit, encryption, key.as_ref(), &has_preview)
     })
     .await
     .map_err(|e| StorageError::Io(io::Error::other(e)))?
 }
 
-/// The order of [`EntryKey`]; the folded name is computed once, not per comparison.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// The order of [`EntryKey`]. `disk_name` is how the file is stored and is not part of the order.
+#[derive(Debug)]
 struct SortKey {
     kind: EntryKind,
     folded: String,
+    /// Name the listing shows. Decoded for an `.npe` file that opened.
     name: String,
+    disk_name: String,
+    /// `name` was decoded from `disk_name`.
+    decoded: bool,
 }
 
 impl SortKey {
-    fn new(kind: EntryKind, name: String) -> Self {
+    fn new(kind: EntryKind, name: String, disk_name: String, decoded: bool) -> Self {
         Self {
             kind,
             folded: name.to_lowercase(),
             name,
+            disk_name,
+            decoded,
         }
+    }
+}
+
+impl PartialEq for SortKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for SortKey {}
+
+impl PartialOrd for SortKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SortKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.folded.cmp(&other.folded))
+            .then_with(|| self.name.cmp(&other.name))
     }
 }
 
@@ -106,13 +137,14 @@ fn list_dir_blocking(
     after: Option<EntryKey>,
     limit: usize,
     encryption: Encryption,
+    key: Option<&::crypto::Key>,
     has_preview: &HasPreview,
 ) -> Result<ListPage, StorageError> {
-    let mut keys = read_keys(dir)?;
+    let mut keys = read_keys(dir, key)?;
     keys.sort_unstable();
     let total = keys.len();
     let start = after.map_or(0, |after| {
-        let after = SortKey::new(after.kind, after.name);
+        let after = SortKey::new(after.kind, after.name.clone(), after.name, false);
         keys.partition_point(|key| *key <= after)
     });
 
@@ -121,9 +153,9 @@ fn list_dir_blocking(
     let mut pending = Vec::new();
     let mut remaining = keys.into_iter().skip(start);
     while entries.len() < limit
-        && let Some(key) = remaining.next()
+        && let Some(sorted) = remaining.next()
     {
-        if let Some((entry, record)) = read_entry(dir, key.name, has_preview)? {
+        if let Some((entry, record)) = read_entry(dir, &sorted, has_preview, key)? {
             if let Some(record) = record {
                 pending.push(record);
             }
@@ -140,7 +172,7 @@ fn list_dir_blocking(
     })
 }
 
-fn read_keys(dir: &Path) -> Result<Vec<SortKey>, StorageError> {
+fn read_keys(dir: &Path, key: Option<&::crypto::Key>) -> Result<Vec<SortKey>, StorageError> {
     let read_dir = fs::read_dir(dir).map_err(|e| match e.kind() {
         io::ErrorKind::NotFound => StorageError::NotFound,
         io::ErrorKind::NotADirectory => StorageError::NotADirectory,
@@ -176,32 +208,48 @@ fn read_keys(dir: &Path) -> Result<Vec<SortKey>, StorageError> {
         } else {
             continue;
         };
-        keys.push(SortKey::new(kind, name));
+        keys.push(sort_key(kind, name, key));
     }
 
     Ok(keys)
 }
 
+/// `.npe` files open into their plaintext name when `key` can decode them.
+/// A name that does not decode stays the on-disk name.
+fn sort_key(kind: EntryKind, disk_name: String, key: Option<&::crypto::Key>) -> SortKey {
+    let decoded = if kind == EntryKind::File {
+        key.and_then(|key| ::crypto::decrypt_filename(key, &disk_name).ok())
+    } else {
+        None
+    };
+    match decoded {
+        Some(name) => SortKey::new(kind, name, disk_name, true),
+        None => SortKey::new(kind, disk_name.clone(), disk_name, false),
+    }
+}
+
 /// `None` when `name` is gone or is no longer a plain file or directory.
 fn read_entry(
     dir: &Path,
-    name: String,
+    sorted: &SortKey,
     has_preview: &HasPreview,
+    key: Option<&::crypto::Key>,
 ) -> io::Result<Option<(Entry, Option<Pending>)>> {
-    let path = dir.join(&name);
+    let path = dir.join(&sorted.disk_name);
     let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    to_entry(name, &meta, &path, has_preview)
+    to_entry(sorted, &meta, &path, has_preview, key)
 }
 
 fn to_entry(
-    name: String,
+    sorted: &SortKey,
     meta: &Metadata,
     path: &Path,
     has_preview: &HasPreview,
+    key: Option<&::crypto::Key>,
 ) -> io::Result<Option<(Entry, Option<Pending>)>> {
     let modified = meta.modified()?;
     let modified_at = DateTime::<Utc>::from(modified);
@@ -211,17 +259,18 @@ fn to_entry(
     Ok(if file_type.is_dir() {
         Some((
             Entry::Dir(Dir {
-                name,
+                name: sorted.disk_name.clone(),
                 modified_at,
                 created_at,
             }),
             None,
         ))
     } else if file_type.is_file() {
-        let described = describe(path, meta.len(), modified);
+        let described = describe(path, sorted, meta.len(), modified, key);
         Some((
             Entry::File(File {
-                name,
+                name: sorted.name.clone(),
+                original_name: sorted.decoded.then(|| sorted.disk_name.clone()),
                 modified_at,
                 created_at,
                 size: meta.len(),
@@ -243,7 +292,145 @@ struct Described {
     pending: Option<Pending>,
 }
 
-fn describe(path: &Path, file_size: u64, modified: SystemTime) -> Described {
+fn describe(
+    path: &Path,
+    sorted: &SortKey,
+    file_size: u64,
+    modified: SystemTime,
+    key: Option<&::crypto::Key>,
+) -> Described {
+    if sorted.decoded
+        && let Some(key) = key
+    {
+        return describe_open_npe(path, Path::new(&sorted.name), modified, key);
+    }
+    describe_regular_file(path, file_size, modified)
+}
+
+/// Mime and image headers of an unlocked `.npe` file, read through a decrypting reader.
+/// The decoded name supplies the extension. A reader that does not open leaves the
+/// ciphertext's own type.
+fn describe_open_npe(
+    path: &Path,
+    display_path: &Path,
+    modified: SystemTime,
+    key: &::crypto::Key,
+) -> Described {
+    if is_image_path(display_path) {
+        return describe_open_image(path, display_path, modified, key);
+    }
+    // A known extension is the type. `file_mime` would sniff, and `display` is the
+    // decoded name, not a path on disk.
+    if !mime::needs_sniff(display_path, 1) {
+        return declared(display_path);
+    }
+    if let Some(cached) = xattr::load(path, modified) {
+        return Described {
+            mime: cached.mime,
+            image: None,
+            pending: None,
+        };
+    }
+
+    let Some((plain_len, mut reader)) = open_reader(path, key) else {
+        return describe_regular_file(path, 0, modified);
+    };
+    if mime::needs_sniff(display_path, plain_len)
+        && let Some(mime) = sniff_plain(&mut reader, plain_len, display_path)
+    {
+        return Described {
+            pending: xattr::pending(path, mime, None, modified),
+            mime: mime.to_owned(),
+            image: None,
+        };
+    }
+    declared(display_path)
+}
+
+fn describe_open_image(
+    path: &Path,
+    display: &Path,
+    modified: SystemTime,
+    key: &::crypto::Key,
+) -> Described {
+    if let Some(cached) = xattr::load(path, modified) {
+        return Described {
+            mime: cached.mime,
+            image: cached.image,
+            pending: None,
+        };
+    }
+    let Some((_, reader)) = open_reader(path, key) else {
+        return describe_regular_file(path, 0, modified);
+    };
+    match probe_reader(display, reader) {
+        Ok(Some(probe)) => Described {
+            pending: xattr::pending(path, probe.mime, probe.image, modified),
+            mime: probe.mime.to_owned(),
+            image: probe.image,
+        },
+        _ => declared(display),
+    }
+}
+
+fn declared(display: &Path) -> Described {
+    Described {
+        mime: mime::declared_mime(display).to_owned(),
+        image: None,
+        pending: None,
+    }
+}
+
+fn open_reader(
+    path: &Path,
+    key: &::crypto::Key,
+) -> Option<(u64, std::io::BufReader<::crypto::ContentFile<fs::File>>)> {
+    let plain = match open_plain(path, key) {
+        Ok(plain) => plain,
+        Err(error) => {
+            tracing::debug!(error = %error, path = %path.display(), "can't open encrypted content");
+            return None;
+        }
+    };
+    let plain_len = plain.plaintext_len();
+    Some((
+        plain_len,
+        std::io::BufReader::with_capacity(mime::SNIFF_LEN, plain),
+    ))
+}
+
+fn open_plain(path: &Path, key: &::crypto::Key) -> io::Result<::crypto::ContentFile<fs::File>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    ::crypto::ContentFile::open(key, file).map_err(io::Error::other)
+}
+
+fn sniff_plain<R: std::io::Read>(
+    reader: &mut R,
+    plain_len: u64,
+    display: &Path,
+) -> Option<&'static str> {
+    let mut head = [0; mime::SNIFF_LEN];
+    let read = reader.read(&mut head).ok()?;
+    if read == 0 {
+        return None;
+    }
+    Some(mime::sniff_mime(&head[..read], plain_len, display))
+}
+
+fn describe_regular_file(path: &Path, file_size: u64, modified: SystemTime) -> Described {
     let cacheable = is_image_path(path) || mime::needs_sniff(path, file_size);
     if cacheable && let Some(cached) = xattr::load(path, modified) {
         return Described {
@@ -316,7 +503,74 @@ mod tests {
     }
 
     fn list(dir: &Path, after: Option<EntryKey>, limit: usize) -> Result<ListPage, StorageError> {
-        list_dir_blocking(dir, after, limit, Encryption::None, &|_, _| false)
+        list_dir_blocking(dir, after, limit, Encryption::None, None, &|_, _| false)
+    }
+
+    #[test]
+    fn an_opened_npe_name_is_shown_decoded() {
+        let tmp = TempDir::new("names");
+        let key = ::crypto::Key {
+            names: [9; 32],
+            contents: [0; 32],
+        };
+        let disk = ::crypto::encrypt_filename(&key, "note.txt").unwrap();
+        fs::write(tmp.0.join(&disk), b"x").unwrap();
+        fs::write(tmp.0.join("readme.txt"), b"x").unwrap();
+        fs::write(tmp.0.join("zz.npe"), b"x").unwrap();
+
+        let page = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
+            false
+        })
+        .unwrap();
+        let note = file(&page, "note.txt");
+        assert_eq!(note.original_name.as_deref(), Some(disk.as_str()));
+        let readme = file(&page, "readme.txt");
+        assert_eq!(readme.original_name, None);
+        let broken = file(&page, "zz.npe");
+        assert_eq!(broken.original_name, None);
+        assert_eq!(names(&page.entries), ["note.txt", "readme.txt", "zz.npe"]);
+    }
+
+    #[test]
+    fn an_opened_npe_image_is_probed_through_its_plaintext() {
+        let tmp = TempDir::new("npe-image");
+        let key = ::crypto::Key {
+            names: [4; 32],
+            contents: [5; 32],
+        };
+        let gif = b"GIF89a\x03\x00\x02\x00\x00\x00\x00;";
+        let disk = write_npe(&tmp.0, &key, "tiny.gif", gif);
+        write_npe(&tmp.0, &key, "hello.txt", b"hello");
+        let broken = ::crypto::encrypt_filename(&key, "bad.gif").unwrap();
+        fs::write(tmp.0.join(&broken), b"not an npe").unwrap();
+
+        let page = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
+            false
+        })
+        .unwrap();
+
+        let image = file(&page, "tiny.gif");
+        assert_eq!(image.mime, "image/gif");
+        assert_eq!(image.original_name.as_deref(), Some(disk.as_str()));
+        let meta = image.image.unwrap();
+        assert_eq!((meta.width, meta.height), (3, 2));
+
+        let text = file(&page, "hello.txt");
+        assert_eq!(text.mime, "text/plain");
+        assert!(text.image.is_none());
+
+        let failed = file(&page, "bad.gif");
+        assert_eq!(failed.mime, "naspresso/npe");
+        assert!(failed.image.is_none());
+    }
+
+    fn write_npe(dir: &Path, key: &::crypto::Key, name: &str, plain: &[u8]) -> String {
+        let disk = ::crypto::encrypt_filename(key, name).unwrap();
+        let mut input = std::io::Cursor::new(plain.to_vec());
+        let mut output = std::io::Cursor::new(Vec::new());
+        ::crypto::encrypt_content(key, &mut input, &mut output).unwrap();
+        fs::write(dir.join(&disk), output.into_inner()).unwrap();
+        disk
     }
 
     fn names(entries: &[Entry]) -> Vec<&str> {
@@ -348,9 +602,9 @@ mod tests {
     #[test]
     fn exact_name_breaks_case_ties() {
         let mut keys = [
-            SortKey::new(EntryKind::File, "a".into()),
-            SortKey::new(EntryKind::File, "B".into()),
-            SortKey::new(EntryKind::File, "A".into()),
+            SortKey::new(EntryKind::File, "a".into(), "a".into(), false),
+            SortKey::new(EntryKind::File, "B".into(), "B".into(), false),
+            SortKey::new(EntryKind::File, "A".into(), "A".into(), false),
         ];
         keys.sort_unstable();
         let names: Vec<_> = keys.iter().map(|key| key.name.as_str()).collect();

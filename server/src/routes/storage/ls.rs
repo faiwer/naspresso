@@ -9,6 +9,7 @@ use super::cursor::{decode_cursor, encode_cursor};
 use crate::{
     crypto,
     error::AppError,
+    routes::cookie::cookie_value,
     state::AppState,
     storage::{self, Encryption, Entry, EntryKey},
 };
@@ -55,16 +56,22 @@ pub async fn ls(
     let after = query.cursor.as_deref().map(decode_cursor).transpose()?;
 
     let dir = storage::resolve(&state.config.storage, &query.path).await?;
-    let encryption = encryption_of(
+    let (encryption, key) = open_vault(
         &query.path,
         headers
             .get(header::COOKIE)
             .and_then(|value| value.to_str().ok()),
+        state.config.npe_seal_key.as_bytes(),
     );
     let previews = state.previews.clone();
-    let page = storage::list_dir(&dir, after, limit, encryption, move |path, modified| {
-        previews.is_fresh(path, modified)
-    })
+    let page = storage::list_dir(
+        &dir,
+        after,
+        limit,
+        encryption,
+        key,
+        move |path, modified| previews.is_fresh(path, modified),
+    )
     .await?;
     let next_cursor = match page.entries.last() {
         Some(last) if page.has_more => Some(encode_cursor(&EntryKey::of(last))),
@@ -87,23 +94,22 @@ pub async fn ls(
     }))
 }
 
-/// The innermost `.nped` directory on `path`, and whether its `npe.` cookie is present.
-fn encryption_of(path: &str, cookie: Option<&str>) -> Encryption {
+/// The innermost `.nped` directory on `path`. Its cookie unlocks the names inside.
+fn open_vault(
+    path: &str,
+    cookie: Option<&str>,
+    secret: &[u8; 32],
+) -> (Encryption, Option<::crypto::Key>) {
     let Some(vault) = encrypted_dir(path) else {
-        return Encryption::None;
+        return (Encryption::None, None);
     };
     let name = crypto::encode_cookie_name(&vault);
-    let present = cookie.is_some_and(|header| {
-        header.split(';').any(|part| {
-            part.split('=')
-                .next()
-                .is_some_and(|cookie_name| cookie_name.trim() == name)
-        })
-    });
-    if present {
-        Encryption::Unlocked
-    } else {
-        Encryption::Locked
+    let Some(value) = cookie.and_then(|header| cookie_value(header, &name)) else {
+        return (Encryption::Locked, None);
+    };
+    match crypto::unseal(secret, value) {
+        Ok(key) => (Encryption::Unlocked, Some(key)),
+        Err(_) => (Encryption::Locked, None),
     }
 }
 
@@ -132,21 +138,36 @@ mod tests {
 
     #[test]
     fn a_path_outside_an_encrypted_dir_is_none() {
-        assert_eq!(encryption_of("", None), Encryption::None);
-        assert_eq!(encryption_of("/photos/day", None), Encryption::None);
+        let secret = [7u8; 32];
+        assert_eq!(open_vault("", None, &secret).0, Encryption::None);
+        assert_eq!(open_vault("/photos/day", None, &secret).0, Encryption::None);
     }
 
     #[test]
-    fn the_innermost_dir_is_locked_until_its_cookie_arrives() {
+    fn the_innermost_dir_is_locked_until_its_cookie_opens() {
         let path = "/a.nped/b.nped/album";
-        assert_eq!(encryption_of(path, None), Encryption::Locked);
+        let secret = [7u8; 32];
+        let key = ::crypto::Key {
+            names: [1; 32],
+            contents: [2; 32],
+        };
+        assert_eq!(open_vault(path, None, &secret).0, Encryption::Locked);
+
         let outer = crypto::encode_cookie_name("/a.nped");
+        let sealed = crypto::seal(&secret, &key).unwrap();
         assert_eq!(
-            encryption_of(path, Some(&format!("{outer}=sealed"))),
+            open_vault(path, Some(&format!("{outer}={sealed}")), &secret).0,
             Encryption::Locked
         );
+        assert_eq!(
+            open_vault(path, Some(&format!("{outer}=sealed")), &secret).0,
+            Encryption::Locked
+        );
+
         let inner = crypto::encode_cookie_name("/a.nped/b.nped");
-        let header = format!("other=1; {inner}=sealed");
-        assert_eq!(encryption_of(path, Some(&header)), Encryption::Unlocked);
+        let header = format!("other=1; {inner}={sealed}");
+        let (encryption, opened) = open_vault(path, Some(&header), &secret);
+        assert_eq!(encryption, Encryption::Unlocked);
+        assert_eq!(opened.unwrap().names, key.names);
     }
 }

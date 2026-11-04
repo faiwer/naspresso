@@ -22,4 +22,6 @@ pub struct File {
     /// Whether previews of the current version are cached, so asking for one
     /// won't wait for a render.
     pub has_preview: bool,
+    /// On-disk name when `name` was decoded from it. `None` for a normal file.
+    pub original_name: Option<String>,
 }

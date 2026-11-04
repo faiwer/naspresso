@@ -27,6 +27,11 @@ pub(crate) fn file_mime(path: &Path, file_size: u64) -> &'static str {
     sniffed_mime(path, file_size).unwrap_or(FALLBACK_MIME)
 }
 
+/// Extension table, or [`FALLBACK_MIME`]. Does not open `path`.
+pub(crate) fn declared_mime(path: &Path) -> &'static str {
+    extension_mime(path).unwrap_or(FALLBACK_MIME)
+}
+
 /// Whether [`sniffed_mime`] would open `path`. A known extension, an empty
 /// file, and a file over [`TEXT_MAX_LEN`] are typed without a read.
 pub(crate) fn needs_sniff(path: &Path, file_size: u64) -> bool {
