@@ -15,6 +15,20 @@ export const apiGet = async <T extends z.ZodType>(
   return decodeJson(response, schema);
 };
 
+/**
+ * POST `path` with a JSON body and validate the response against `schema`.
+ * Body keys are camelCase here and snake_cased on the wire.
+ */
+export const apiPost = async <T extends z.ZodType>(
+  path: string,
+  schema: T,
+  body: JsonBody,
+  options: ApiRequestOptions = {},
+): Promise<z.infer<T>> => {
+  const response = await fetchOk(path, { ...options, method: "POST", body });
+  return decodeJson(response, schema);
+};
+
 /** Absolute URL of an API endpoint, for places that load it themselves (`<a href>`, `<img src>`). */
 export const buildApiUrl = (path: string, query?: ApiQuery): string =>
   API_ROOT + buildPath(path, query);
@@ -70,10 +84,18 @@ const API_ROOT = "/api";
 
 const DEV_DELAY_MAX_MS = 200;
 
+type JsonBody = Record<string, string | number | boolean | null>;
+
+interface FetchOptions extends ApiRequestOptions {
+  method?: "GET" | "POST";
+  body?: JsonBody;
+}
+
 const fetchOk = async (
   path: string,
-  options: ApiRequestOptions,
+  options: FetchOptions,
 ): Promise<Response> => {
+  const method = options.method ?? "GET";
   const url = buildApiUrl(path, options.query);
   if (import.meta.env.DEV) {
     // Local responses are instant; this surfaces loading states and races.
@@ -83,13 +105,22 @@ const fetchOk = async (
 
   let response: Response;
   try {
-    response = await fetch(url, { signal: options.signal });
+    response = await fetch(url, {
+      method,
+      signal: options.signal,
+      headers: options.body
+        ? { "content-type": "application/json" }
+        : undefined,
+      body: options.body
+        ? JSON.stringify(snakecaseKeys(options.body))
+        : undefined,
+    });
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") {
       throw cause;
     }
 
-    throw new NetworkError(`GET ${url} failed`, { cause });
+    throw new NetworkError(`${method} ${url} failed`, { cause });
   }
 
   if (!response.ok) {

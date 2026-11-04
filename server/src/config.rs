@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use thiserror::Error;
 
 const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
@@ -14,6 +15,12 @@ pub struct Config {
     pub host: String,
     /// `PORT` env var.
     pub port: u16,
+    /// Public mount of the API, used as the cookie `Path`. `API_PREFIX` env
+    /// var. A trailing slash is dropped, except when the prefix is `/`.
+    pub api_prefix: String,
+    /// Key that seals an unlocked password key into the `npe.` cookie.
+    /// `NPE_SEAL_KEY` env var: standard base64 of exactly 32 bytes.
+    pub npe_seal_key: NpeSealKey,
     /// Root directory served by `/storage/*`. `STORAGE` env var. A relative
     /// path is resolved against the `server/` directory, where `.env` lives.
     /// Canonicalized at startup, so it's absolute and known to be an existing
@@ -30,6 +37,22 @@ pub struct Config {
     /// How many previews may render at once; the rest wait in order.
     /// `PREVIEW_WORKERS` env var.
     pub preview_workers: NonZeroUsize,
+}
+
+/// 32-byte server key. `Debug` redacts it.
+#[derive(Clone)]
+pub struct NpeSealKey([u8; 32]);
+
+impl NpeSealKey {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for NpeSealKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("NpeSealKey(..)")
+    }
 }
 
 #[derive(Debug, Error)]
@@ -59,6 +82,8 @@ impl Config {
         Ok(Self {
             host: parse_env("HOST")?,
             port: parse_env("PORT")?,
+            api_prefix: api_prefix(&parse_env::<String>("API_PREFIX")?)?,
+            npe_seal_key: npe_seal_key(&parse_env::<String>("NPE_SEAL_KEY")?)?,
             storage: parse_dir_env("STORAGE")?,
             cache: parse_created_dir_env("CACHE")?,
             preview_quality: parse_ranged_env("PREVIEW_QUALITY", 1.0, 100.0)?,
@@ -82,6 +107,41 @@ where
         });
     }
     Ok(value)
+}
+
+fn api_prefix(raw: &str) -> Result<String, ConfigError> {
+    let trimmed = raw.trim();
+    let invalid = || ConfigError::InvalidValue {
+        var: "API_PREFIX",
+        source: "must be an absolute path".into(),
+    };
+    if !trimmed.starts_with('/')
+        || trimmed
+            .chars()
+            .any(|char| char.is_whitespace() || char == ';' || char.is_control())
+    {
+        return Err(invalid());
+    }
+    if trimmed == "/" {
+        return Ok(trimmed.to_owned());
+    }
+    Ok(trimmed.trim_end_matches('/').to_owned())
+}
+
+fn npe_seal_key(raw: &str) -> Result<NpeSealKey, ConfigError> {
+    let bytes = STANDARD
+        .decode(raw.trim())
+        .map_err(|error| ConfigError::InvalidValue {
+            var: "NPE_SEAL_KEY",
+            source: Box::new(error),
+        })?;
+    let bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|bytes: Vec<u8>| ConfigError::InvalidValue {
+            var: "NPE_SEAL_KEY",
+            source: format!("must decode to 32 bytes, got {}", bytes.len()).into(),
+        })?;
+    Ok(NpeSealKey(bytes))
 }
 
 /// Read and parse a required env var. Unset and blank both count as missing.
@@ -127,4 +187,35 @@ fn parse_created_dir_env(var: &'static str) -> Result<PathBuf, ConfigError> {
         source: Box::new(e),
     })?;
     parse_dir_env(var)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_an_absolute_prefix_and_drops_a_trailing_slash() {
+        assert_eq!(api_prefix("/api").unwrap(), "/api");
+        assert_eq!(api_prefix("/api/").unwrap(), "/api");
+        assert_eq!(api_prefix("/").unwrap(), "/");
+    }
+
+    #[test]
+    fn rejects_a_prefix_that_is_not_an_absolute_path() {
+        assert!(api_prefix("api").is_err());
+        assert!(api_prefix("").is_err());
+        assert!(api_prefix("/api;").is_err());
+    }
+
+    #[test]
+    fn accepts_32_bytes_of_standard_base64() {
+        let key = npe_seal_key("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=").unwrap();
+        assert_eq!(key.as_bytes().len(), 32);
+    }
+
+    #[test]
+    fn rejects_a_seal_key_of_the_wrong_length() {
+        assert!(npe_seal_key("YQ==").is_err());
+        assert!(npe_seal_key("not base64").is_err());
+    }
 }

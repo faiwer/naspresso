@@ -3,11 +3,14 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use crypto::{ContentError, PasswordError};
 use media::preview::PreviewError;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{cancel::Cancelled, preview::PreviewCacheError, storage::StorageError};
+use crate::{
+    cancel::Cancelled, crypto::CryptoError, preview::PreviewCacheError, storage::StorageError,
+};
 
 /// Top-level error type for handlers. Responds with `{ error, message }`, where
 /// `error` is a stable machine-readable code.
@@ -65,6 +68,32 @@ impl AppError {
             AppError::NotImplemented(_) => "not_implemented",
             AppError::Cancelled => "cancelled",
             AppError::Internal(_) => "internal_error",
+        }
+    }
+}
+
+impl From<PasswordError> for AppError {
+    fn from(err: PasswordError) -> Self {
+        match err {
+            PasswordError::Length | PasswordError::Symbol => AppError::BadRequest(err.to_string()),
+            PasswordError::Derive => AppError::Internal(err.into()),
+        }
+    }
+}
+
+impl From<CryptoError> for AppError {
+    fn from(err: CryptoError) -> Self {
+        match err {
+            CryptoError::NotEncryptedDirectory => AppError::BadRequest(err.to_string()),
+            CryptoError::Storage(err) => err.into(),
+            CryptoError::Seal => AppError::Internal(err.into()),
+            CryptoError::Content(error) => match error {
+                ContentError::Io(err) => AppError::Internal(err.into()),
+                ContentError::Authentication => {
+                    AppError::Internal(anyhow::anyhow!("encrypted content failed authentication"))
+                }
+                other => AppError::BadRequest(other.to_string()),
+            },
         }
     }
 }

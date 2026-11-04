@@ -9,6 +9,7 @@ use tokio::{net::TcpListener, signal};
 mod cancel;
 mod commands;
 mod config;
+mod crypto;
 mod error;
 mod preview;
 mod routes;
