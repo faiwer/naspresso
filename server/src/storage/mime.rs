@@ -12,6 +12,12 @@ const TEXT_MAX_LEN: u64 = 512 * 1024;
 
 const FALLBACK_MIME: &str = "application/octet-stream";
 
+/// Naspresso encrypted file.
+const NPE_MIME: &str = "naspresso/npe";
+
+/// `NSPE`, the NPE content header.
+const NPE_MAGIC: &[u8; 4] = b"NSPE";
+
 /// The type of a file that isn't probed as an image. A known extension comes
 /// from the table. Anything else is sniffed when it is small enough to be text.
 pub(crate) fn file_mime(path: &Path, file_size: u64) -> &'static str {
@@ -28,12 +34,16 @@ pub(crate) fn needs_sniff(path: &Path, file_size: u64) -> bool {
 }
 
 /// The MIME type by magic bytes in `head`, the start of a file of `file_size`
-/// bytes at `path`, then by `path`'s extension. An extension the table does not
-/// know becomes `text/plain` when the file is non-empty, at most
-/// [`TEXT_MAX_LEN`] bytes, and `head` is text.
+/// bytes at `path`, then by `path`'s extension. An `NSPE` header is
+/// `naspresso/npe`. An extension the table does not know becomes `text/plain`
+/// when the file is non-empty, at most [`TEXT_MAX_LEN`] bytes, and `head` is
+/// text.
 pub(crate) fn sniff_mime(head: &[u8], file_size: u64, path: &Path) -> &'static str {
     if let Some(kind) = infer::get(head) {
         return kind.mime_type();
+    }
+    if head.starts_with(NPE_MAGIC) {
+        return NPE_MIME;
     }
     extension_mime(path).unwrap_or_else(|| {
         if is_text(head, file_size) {
@@ -46,6 +56,12 @@ pub(crate) fn sniff_mime(head: &[u8], file_size: u64, path: &Path) -> &'static s
 
 /// The table's type for `path`'s extension. `None` when it has no row there.
 fn extension_mime(path: &Path) -> Option<&'static str> {
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("npe"))
+    {
+        return Some(NPE_MIME);
+    }
     mime_guess::from_path(path).first_raw()
 }
 
@@ -195,6 +211,30 @@ mod tests {
         assert_eq!(
             sniff_mime(partial, partial.len() as u64, Path::new("blob")),
             FALLBACK_MIME
+        );
+    }
+
+    #[test]
+    fn an_npe_extension_is_typed_without_opening() {
+        assert_eq!(file_mime(Path::new("/nonexistent/secret.npe"), 0), NPE_MIME);
+        assert_eq!(sniff_mime(b"hello", 5, Path::new("secret.NPE")), NPE_MIME);
+    }
+
+    #[test]
+    fn nspe_magic_wins_over_the_extension() {
+        let npe = b"NSPErest-of-header";
+        assert_eq!(
+            sniff_mime(npe, npe.len() as u64, Path::new("photo.jpg")),
+            NPE_MIME
+        );
+    }
+
+    #[test]
+    fn image_magic_wins_over_an_npe_name() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        assert_eq!(
+            sniff_mime(png, png.len() as u64, Path::new("photo.npe")),
+            "image/png"
         );
     }
 
