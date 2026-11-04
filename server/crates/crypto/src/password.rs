@@ -20,14 +20,14 @@ pub struct Key {
 
 /// Hash the password into a [`Key`].
 ///
-/// `names` is Argon2id of `password[0..31]` with salt `naspresso-names-v1`.
-/// `contents` is Argon2id of `password[0..63]` with salt `naspresso-contents-v1`.
+/// `names` is Argon2id of the first 32 characters with salt `naspresso-names-v1`.
+/// `contents` is Argon2id of the whole password with salt `naspresso-contents-v1`.
 pub fn prepare(password: &str) -> Result<Key, PasswordError> {
     validate_password(password)?;
     let bytes = password.as_bytes();
     Ok(Key {
-        names: digest(NAMES_SALT, &bytes[0..31])?,
-        contents: digest(CONTENTS_SALT, &bytes[0..63])?,
+        names: digest(NAMES_SALT, &bytes[0..32])?,
+        contents: digest(CONTENTS_SALT, bytes)?,
     })
 }
 
