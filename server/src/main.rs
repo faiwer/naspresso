@@ -19,8 +19,8 @@ mod telemetry;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("encrypt") {
-        return commands::encrypt(args).await;
+    if args.next().as_deref() == Some("crypto") {
+        return commands::crypto(args).await;
     }
 
     serve().await
