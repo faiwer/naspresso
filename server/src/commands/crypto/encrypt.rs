@@ -1,4 +1,8 @@
-use std::{io, path::PathBuf};
+use std::{
+    ffi::OsString,
+    io,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, bail};
 
@@ -33,6 +37,11 @@ pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
     .await
     .with_context(|| format!("encrypting {file_path}"))?;
 
+    let dest = directory.join(&encrypted.file_name);
+    tokio::fs::rename(tmp_path(&dest), &dest)
+        .await
+        .with_context(|| format!("renaming {}", dest.display()))?;
+
     println!(
         "{} {}",
         encrypted.size,
@@ -43,7 +52,7 @@ pub async fn encrypt(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
 
 const USAGE: &str = "usage: crypto encrypt [-p<password>] <file_path>";
 
-/// Create `path` for writing. An existing file is left untouched.
+/// Create the `.tmp` beside `path`. An existing final file is left untouched.
 async fn create_output(path: PathBuf) -> io::Result<tokio::fs::File> {
     if tokio::fs::try_exists(&path).await? {
         return Err(io::Error::new(
@@ -53,7 +62,14 @@ async fn create_output(path: PathBuf) -> io::Result<tokio::fs::File> {
     }
     tokio::fs::OpenOptions::new()
         .write(true)
-        .create_new(true)
-        .open(path)
+        .create(true)
+        .truncate(true)
+        .open(tmp_path(&path))
         .await
+}
+
+fn tmp_path(path: &Path) -> PathBuf {
+    let mut name = OsString::from(path);
+    name.push(".tmp");
+    PathBuf::from(name)
 }
