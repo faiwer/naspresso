@@ -1,4 +1,3 @@
-import { FolderOpenFilled } from "@ant-design/icons";
 import { Skeleton } from "antd";
 import { useRef, type CSSProperties } from "react";
 import { Link } from "react-router";
@@ -15,6 +14,7 @@ import { range } from "../../core/helpers/array";
 import { getExtension, joinPath } from "../../core/helpers/path";
 import { routes } from "../../core/routes";
 import { FileIcon } from "../fileIcon/FileIcon";
+import { FolderIcon } from "../FolderIcon/FolderIcon";
 import { Image } from "../image/Image";
 import { usePreviewJob } from "./queue/usePreviewJob";
 import { PreviewQueueProvider, usePreviewQueue } from "./queue/usePreviewQueue";
@@ -116,7 +116,7 @@ const ThumbnailPreview = ({ entry, file, index }: ThumbnailPreviewProps) => {
   if (entry.kind === "dir") {
     return (
       <div className={`${styles.icon} ${styles.folder}`}>
-        <FolderOpenFilled />
+        <FolderIcon name={entry.name} />
       </div>
     );
   }
