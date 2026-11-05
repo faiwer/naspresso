@@ -1,11 +1,11 @@
-import { DatabaseFilled } from "@ant-design/icons";
 import { Breadcrumb } from "antd";
 import { useState } from "react";
-import { Link, useLocation } from "react-router";
+import { useLocation } from "react-router";
 
 import { Frame } from "../com/layout/Frame";
 import { Gap } from "../com/layout/Gap";
 import { PageTitle } from "../com/layout/PageTitle";
+import { makeSegmentBreadcrumbs } from "../com/storage/SegmentBreadcrumb";
 import { StorageListing } from "../com/storage/StorageListing";
 import { StorageModeSwitch } from "../com/storage/StorageModeSwitch";
 import { useStorageFeed } from "../com/storage/useStorageFeed";
@@ -16,9 +16,8 @@ import {
 import { joinPath } from "../core/helpers/path";
 import { useAsyncEffect } from "../core/hooks/useAsyncEffect";
 import { useLocalStorageState } from "../core/hooks/useLocalStorageState";
-import { parseStorageUrl, routes } from "../core/routes";
+import { parseStorageUrl } from "../core/routes";
 
-import styles from "./StoragePage.module.css";
 /**
  * Lists a directory of `STORAGE`. Mounted at `/storage/*`; the rest of the URL is the
  * directory path, built by `routes.storage`.
@@ -34,20 +33,6 @@ export const StoragePage = () => {
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(
     null,
   );
-  const rootLabel = (
-    <span className={styles.rootCrumb}>
-      <DatabaseFilled className={styles.rootIcon} />
-      Storage
-    </span>
-  );
-  const breadcrumbs = [rootLabel, ...segments].map((label, index) => ({
-    title:
-      index === segments.length ? (
-        label
-      ) : (
-        <Link to={routes.storage(segments.slice(0, index))}>{label}</Link>
-      ),
-  }));
   const feed = useStorageFeed(joinPath(segments));
 
   // The container outlives directories, so it would keep the previous one's offset.
@@ -60,7 +45,9 @@ export const StoragePage = () => {
       scrollContainerRef={setScrollContainer}
       header={
         <>
-          <Breadcrumb items={breadcrumbs} />
+          <Breadcrumb
+            items={makeSegmentBreadcrumbs(segments, feed.encryption)}
+          />
           <Gap />
           <StorageModeSwitch value={mode} onChange={setMode} />
         </>
@@ -69,7 +56,6 @@ export const StoragePage = () => {
       <PageTitle title={segments.at(-1) ?? "Storage"} />
       {scrollContainer && (
         <StorageListing
-          key={path}
           segments={segments}
           feed={feed}
           mode={mode}

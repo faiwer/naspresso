@@ -1,0 +1,9 @@
+.crumb {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.icon {
+  color: var(--color-folder);
+}

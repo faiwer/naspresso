@@ -48,3 +48,5 @@ type ListStorageOptions = Omit<ApiRequestOptions, "query"> & {
   /** Page size; the server's default when omitted. */
   limit?: number;
 };
+
+export const isEncryptedFolder = (segment: string) => segment.endsWith(".nped");

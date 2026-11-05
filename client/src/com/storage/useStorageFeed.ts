@@ -34,6 +34,11 @@ export const useStorageFeed = (path: string): StorageFeed => {
   // Bumped by `retry` to re-run the fetch effect for the same cursor.
   const [attempt, setAttempt] = useState(0);
 
+  useAsyncEffect(() => {
+    setState(INITIAL_STATE);
+    setAttempt(0);
+  }, [path]);
+
   useAsyncEffect(
     async (signal) => {
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
@@ -63,7 +68,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
         }
       }
     },
-    [state.cursor, attempt],
+    [path, state.cursor, attempt],
   );
 
   const canLoadMore =
