@@ -17,6 +17,10 @@
   color: inherit;
   text-decoration: none;
   cursor: pointer;
+
+  &:hover {
+    background: var(--color-entry-background-hover);
+  }
 }
 
 /* 4:2. Keep in sync with the non-image aspect in packMasonryColumns. */
@@ -46,6 +50,10 @@
   min-height: 0;
   gap: 0.25rem;
   font-size: 5rem;
+
+  .item:hover & {
+    color: var(--color-file-hover);
+  }
 }
 
 .name {
@@ -64,6 +72,10 @@
 
 .folder {
   color: var(--color-folder);
+
+  .item:hover & {
+    color: var(--color-folder-hover);
+  }
 }
 
 .file {

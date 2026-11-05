@@ -17,7 +17,7 @@
   color: inherit;
 
   .icon {
-    background: var(--color-hover-bg);
+    background: var(--color-entry-background-hover);
     border-radius: 0.5rem;
   }
 }
@@ -53,6 +53,10 @@
 
 .folder {
   color: var(--color-folder);
+
+  .item:hover & {
+    color: var(--color-folder-hover);
+  }
 }
 
 .file {

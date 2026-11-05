@@ -6,13 +6,14 @@
   --color-surface-bg: #fff;
   --color-border: #e0e0e0;
   --color-shadow: rgb(0 0 0 / 6%);
-  --color-hover-bg: rgb(0 0 0 / 3%);
   --color-thumb-from: #e8e8e8;
   --color-thumb-to: #c8c8c8;
   --color-folder: #f0b429;
+  --color-folder-hover: #da9800;
   --color-file: #dbdbdb;
   --color-file-hover: #c0c0c0;
   --color-background-secondary: #f8f8f8;
+  --color-entry-background-hover: #fff5e4;
   --color-overlay: rgb(40 40 40 / 80%);
   --color-preview-chrome-bg: rgb(0 0 0 / 45%);
   --color-preview-chrome-fg: #fff;
