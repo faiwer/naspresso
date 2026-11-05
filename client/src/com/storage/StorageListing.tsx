@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { joinPath } from "../../core/helpers/path";
 import { ErrorToast } from "../feedback/ErrorToast";
 import { ScrollSentinel } from "../layout/ScrollSentinel";
 import { StorageMasonry } from "./masonry/StorageMasonry";
@@ -8,7 +7,7 @@ import { StorageList, type StorageViewProps } from "./StorageList";
 import { StorageTable } from "./StorageTable";
 import { StorageThumbnails } from "./StorageThumbnails";
 import { useOpenStorageImage } from "./useOpenStorageImage";
-import { STORAGE_PAGE_SIZE, useStorageFeed } from "./useStorageFeed";
+import { STORAGE_PAGE_SIZE, type StorageFeed } from "./useStorageFeed";
 import type { StorageViewMode } from "./viewMode";
 
 type StorageListingProps = {
@@ -17,6 +16,7 @@ type StorageListingProps = {
   mode: StorageViewMode;
   /** The element the listing scrolls in; more is loaded as it nears the bottom. */
   scrollContainer: HTMLElement;
+  feed: StorageFeed;
 };
 
 /**
@@ -27,8 +27,8 @@ export const StorageListing = ({
   segments,
   mode,
   scrollContainer,
+  feed,
 }: StorageListingProps) => {
-  const feed = useStorageFeed(joinPath(segments));
   const openImage = useOpenStorageImage(segments, feed.items);
   const View = VIEWS[mode];
   const skeletons = !feed.isLoading

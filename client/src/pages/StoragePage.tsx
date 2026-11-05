@@ -8,6 +8,7 @@ import { Gap } from "../com/layout/Gap";
 import { PageTitle } from "../com/layout/PageTitle";
 import { StorageListing } from "../com/storage/StorageListing";
 import { StorageModeSwitch } from "../com/storage/StorageModeSwitch";
+import { useStorageFeed } from "../com/storage/useStorageFeed";
 import {
   STORAGE_VIEW_MODE_KEY,
   StorageViewModeSchema,
@@ -47,6 +48,7 @@ export const StoragePage = () => {
         <Link to={routes.storage(segments.slice(0, index))}>{label}</Link>
       ),
   }));
+  const feed = useStorageFeed(joinPath(segments));
 
   // The container outlives directories, so it would keep the previous one's offset.
   useAsyncEffect(() => {
@@ -69,6 +71,7 @@ export const StoragePage = () => {
         <StorageListing
           key={path}
           segments={segments}
+          feed={feed}
           mode={mode}
           scrollContainer={scrollContainer}
         />
