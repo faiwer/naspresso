@@ -1,3 +1,4 @@
+import { LockFilled } from "@ant-design/icons";
 import type { ReactNode } from "react";
 
 import BinaryIcon from "../icons/binary.svg?react";
@@ -28,6 +29,10 @@ export const getMimeIcon = (mime: string, className?: string): ReactNode => {
 
   if (mime.startsWith("audio/")) {
     Icon = WaveIcon;
+  }
+
+  if (mime === "naspresso/npe") {
+    Icon = LockFilled;
   }
 
   return <Icon className={className} />;
