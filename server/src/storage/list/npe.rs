@@ -68,12 +68,12 @@ fn describe_npe_image(
             pending: None,
         };
     }
-    let Some((_, reader)) = open_npe_reader(npe_file_path, key) else {
+    let Some((_, mut reader)) = open_npe_reader(npe_file_path, key) else {
         return unreadable_npe(npe_file_path);
     };
     let decrypted_file_path = Path::new(decrypted_file_name);
 
-    match probe_reader(decrypted_file_path, reader) {
+    match probe_reader(decrypted_file_path, &mut reader) {
         Ok(Some(probe)) => Described {
             pending: xattr::pending_npe(
                 npe_file_path,

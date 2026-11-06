@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Cursor, Seek},
+    io::{self, BufRead, BufReader, Cursor, Read, Seek},
     panic,
     path::Path,
     thread::{self, ScopedJoinHandle},
@@ -31,7 +31,7 @@ use crate::{
     },
     metadata::Hdr,
     pq,
-    probe::probe_file,
+    probe::{self, probe_file, probe_reader},
 };
 
 /// What the `image` crate is built to decode.
@@ -73,31 +73,99 @@ pub fn render(path: &Path, quality: f32, speed: u8) -> Result<Rendered, PreviewE
     let Some(probe) = probe_file(path)? else {
         return Err(PreviewError::UnsupportedFormat("application/octet-stream"));
     };
+    render_probed(probe, quality, speed, &mut FileSource { path })
+}
+
+/// [`render`] for an image already open at the start of `reader`. `name`
+/// supplies the extension and is not opened.
+pub fn render_reader<R: Read + Seek>(
+    name: &Path,
+    reader: R,
+    quality: f32,
+    speed: u8,
+) -> Result<Rendered, PreviewError> {
+    let mut reader = BufReader::with_capacity(probe::SNIFF_LEN, reader);
+    let Some(probe) = probe_reader(name, &mut reader)? else {
+        return Err(PreviewError::UnsupportedFormat("application/octet-stream"));
+    };
+    render_probed(probe, quality, speed, &mut ReaderSource { reader })
+}
+
+fn render_probed(
+    probe: crate::Probe,
+    quality: f32,
+    speed: u8,
+    source: &mut impl ImageSource,
+) -> Result<Rendered, PreviewError> {
     let hdr = probe.image.map(|image| image.hdr);
+
     if probe.mime == "image/jxl" {
-        return make_previews_from_jxl(&fs::read(path)?, hdr, quality, speed);
+        return make_previews_from_jxl(&source.bytes()?, hdr, quality, speed);
     }
+
     if probe.mime == "image/avif" || probe.mime == "image/heif" {
-        return make_previews_from_heif(&fs::read(path)?, hdr, quality, speed);
+        return make_previews_from_heif(&source.bytes()?, hdr, quality, speed);
     }
+
     if !DECODABLE.contains(&probe.mime) {
         return Err(PreviewError::UnsupportedFormat(probe.mime));
     }
+
     match hdr {
         Some(Hdr::GainMap) if probe.mime == "image/jpeg" => {
-            return make_previews_from_gain_mapped_jpeg(&fs::read(path)?, quality, speed);
+            return make_previews_from_gain_mapped_jpeg(&source.bytes()?, quality, speed);
         }
         Some(Hdr::None) | None => {}
         Some(_) => return Err(PreviewError::HdrUnsupported),
     }
 
-    let (image, icc) = decode(ImageReader::open(path)?.with_guessed_format()?)?;
+    let (image, icc) = source.decoded()?;
     encode_sdr_avifs(
         sdr_pixels(image)?,
         ColorSpace::from_icc(icc),
         quality,
         speed,
     )
+}
+
+/// Where the plaintext bytes of one image come from.
+trait ImageSource {
+    /// Read the bytes of the image. Either from a file or a reader.
+    fn bytes(&mut self) -> io::Result<Vec<u8>>;
+    /// Decode via ImageReader (`image` crate)
+    fn decoded(&mut self) -> Result<(DynamicImage, Option<Vec<u8>>), PreviewError>;
+}
+
+struct FileSource<'a> {
+    path: &'a Path,
+}
+
+impl ImageSource for FileSource<'_> {
+    fn bytes(&mut self) -> io::Result<Vec<u8>> {
+        fs::read(self.path)
+    }
+
+    fn decoded(&mut self) -> Result<(DynamicImage, Option<Vec<u8>>), PreviewError> {
+        decode(ImageReader::open(self.path)?.with_guessed_format()?)
+    }
+}
+
+struct ReaderSource<R> {
+    reader: R,
+}
+
+impl<R: BufRead + Seek> ImageSource for ReaderSource<R> {
+    fn bytes(&mut self) -> io::Result<Vec<u8>> {
+        self.reader.rewind()?;
+        let mut bytes = Vec::new();
+        self.reader.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    fn decoded(&mut self) -> Result<(DynamicImage, Option<Vec<u8>>), PreviewError> {
+        self.reader.rewind()?;
+        decode(ImageReader::new(&mut self.reader).with_guessed_format()?)
+    }
 }
 
 /// `image` as 8-bit RGB, or RGBA if it has alpha.
@@ -442,7 +510,10 @@ fn scale_gain_mapped(
 fn decode<R: BufRead + Seek>(
     reader: ImageReader<R>,
 ) -> Result<(DynamicImage, Option<Vec<u8>>), PreviewError> {
-    let decode_error = |e: ImageError| PreviewError::Decode(e.to_string());
+    let decode_error = |error: ImageError| match error {
+        ImageError::IoError(error) => PreviewError::Io(error),
+        other => PreviewError::Decode(other.to_string()),
+    };
     let mut decoder = reader.into_decoder().map_err(decode_error)?;
     let orientation = decoder.orientation().map_err(decode_error)?;
     let icc = decoder.icc_profile().map_err(decode_error)?;

@@ -7,5 +7,5 @@ mod resize;
 mod size;
 
 pub use error::PreviewError;
-pub use render::{Rendered, render};
+pub use render::{Rendered, render, render_reader};
 pub use size::PreviewSize;

@@ -129,6 +129,9 @@ impl From<PreviewCacheError> for AppError {
         match err {
             PreviewCacheError::Preview(e) => e.into(),
             PreviewCacheError::Cancelled(Cancelled) => AppError::Cancelled,
+            PreviewCacheError::Decrypt => {
+                AppError::BadRequest("cannot decrypt the file".to_owned())
+            }
         }
     }
 }

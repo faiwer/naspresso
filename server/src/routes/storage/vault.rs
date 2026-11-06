@@ -1,4 +1,6 @@
-use crate::{crypto, routes::cookie::cookie_value, storage::Encryption};
+use axum::http::{HeaderMap, header};
+
+use crate::{crypto, error::AppError, routes::cookie::cookie_value, storage::Encryption};
 
 /// The innermost `.nped` directory on `path`, and the key its cookie unseals.
 pub(super) fn open_vault(
@@ -17,6 +19,25 @@ pub(super) fn open_vault(
         Ok(key) => (Encryption::Unlocked, Some(key)),
         Err(_) => (Encryption::Locked, None),
     }
+}
+
+/// The vault key for `file`, from its cookie. Missing or unusable is the same
+/// refusal a locked download gets.
+pub(crate) fn vault_key(
+    file: &str,
+    headers: &HeaderMap,
+    secret: &[u8; 32],
+) -> Result<::crypto::Key, AppError> {
+    let cookie = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok());
+    open_vault(file, cookie, secret)
+        .1
+        .ok_or_else(cannot_decrypt)
+}
+
+pub(crate) fn cannot_decrypt() -> AppError {
+    AppError::BadRequest("cannot decrypt the file".to_owned())
 }
 
 /// `/a/vault.nped/b` → `/a/vault.nped`. The innermost one, when several are on the path.

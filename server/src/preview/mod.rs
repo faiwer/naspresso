@@ -3,4 +3,4 @@
 mod bundle;
 mod cache;
 
-pub use cache::{Preview, PreviewCache, PreviewCacheError};
+pub use cache::{OpenNpe, Preview, PreviewCache, PreviewCacheError};

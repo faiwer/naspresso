@@ -51,6 +51,18 @@ pub fn encode(fingerprint: &str, rendered: &Rendered) -> Vec<u8> {
     bytes
 }
 
+/// The AVIF of `size` inside an encoded bundle. `None` when `bytes` were made
+/// from another version of the source, or the bundle is damaged.
+#[cfg(test)]
+pub(super) fn read_avif(bytes: &[u8], fingerprint: &str, size: PreviewSize) -> Option<Vec<u8>> {
+    let count = parse_fixed(bytes.get(..FIXED_LEN)?.try_into().ok()?, fingerprint)?;
+    let table = bytes.get(FIXED_LEN..FIXED_LEN + count * ENTRY_LEN)?;
+    let (offset, len) = locate(table, size, bytes.len() as u64)?;
+    let start = usize::try_from(offset).ok()?;
+    let end = start.checked_add(usize::try_from(len).ok()?)?;
+    bytes.get(start..end).map(|avif| avif.to_vec())
+}
+
 /// The AVIF of `size` from the bundle at `path`. `None` when there's no bundle,
 /// or it was made from another version of the source, or it's damaged.
 pub async fn open(
@@ -82,6 +94,9 @@ pub async fn open(
 
     file.seek(SeekFrom::Start(offset)).await?;
     Ok(Some(BundledAvif {
+        // Limit the reader to the length of the requested AVIF. After that, we
+        // can call .read_to_end() to get the whole AVIF without reading the
+        // whole file.
         reader: file.take(len),
         len,
     }))
@@ -156,10 +171,7 @@ mod tests {
 
     /// What [`open`] reads from `bytes`, without the file.
     fn read(bytes: &[u8], fingerprint: &str, size: PreviewSize) -> Option<Vec<u8>> {
-        let count = parse_fixed(bytes.get(..FIXED_LEN)?.try_into().ok()?, fingerprint)?;
-        let table = bytes.get(FIXED_LEN..FIXED_LEN + count * ENTRY_LEN)?;
-        let (offset, len) = locate(table, size, bytes.len() as u64)?;
-        Some(bytes[offset as usize..(offset + len) as usize].to_vec())
+        read_avif(bytes, fingerprint, size)
     }
 
     #[test]

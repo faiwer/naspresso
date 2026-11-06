@@ -31,20 +31,22 @@ pub fn probe_file(path: &Path) -> io::Result<Option<Probe>> {
         |e| tracing::debug!(error = %e, path = %path.display(), "can't open an image"),
     )?;
     disable_read_ahead(&file);
-    probe_reader(path, BufReader::with_capacity(SNIFF_LEN, file))
+    let mut reader = BufReader::with_capacity(SNIFF_LEN, file);
+    probe_reader(path, &mut reader)
 }
 
 /// [`probe_file`] for a reader already at the start of the plaintext. `name`
 /// supplies the extension; it does not have to be the file that was opened.
+/// The reader is left where the probe stopped.
 pub fn probe_reader<R: Read + Seek>(
     name: &Path,
-    mut reader: BufReader<R>,
+    reader: &mut BufReader<R>,
 ) -> io::Result<Option<Probe>> {
     if image_extension_mime(name).is_none() {
         return Ok(None);
     }
     let mime = image_mime(reader.fill_buf()?, name);
-    let image = read_image(&mut reader, mime)
+    let image = read_image(reader, mime)
         .inspect_err(
             |e| tracing::debug!(error = %e, path = %name.display(), "unreadable image header"),
         )

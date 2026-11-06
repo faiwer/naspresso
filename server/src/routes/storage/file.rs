@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use super::vault::open_vault;
+use super::{cannot_decrypt, vault_key};
 use crate::{
     error::AppError,
     routes::{
@@ -102,19 +102,6 @@ async fn decoded_file(
     Ok(response)
 }
 
-fn vault_key(
-    file: &str,
-    headers: &HeaderMap,
-    secret: &[u8; 32],
-) -> Result<::crypto::Key, AppError> {
-    let cookie = headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok());
-    open_vault(file, cookie, secret)
-        .1
-        .ok_or_else(cannot_decrypt)
-}
-
 async fn plaintext_mime<R>(
     decoded: &mut ::crypto::AsyncContentFile<R>,
     plain_len: u64,
@@ -190,10 +177,6 @@ fn percent_encode(name: &str) -> String {
         }
     }
     out
-}
-
-fn cannot_decrypt() -> AppError {
-    AppError::BadRequest("cannot decrypt the file".to_owned())
 }
 
 fn content_error(error: ContentError) -> AppError {
