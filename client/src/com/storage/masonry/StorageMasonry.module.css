@@ -33,6 +33,10 @@
   position: relative;
   width: 100%;
   overflow: hidden;
+
+  &:hover {
+    filter: brightness(1.2);
+  }
 }
 
 .previewFill {

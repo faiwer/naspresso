@@ -20,6 +20,10 @@
     background: var(--color-entry-background-hover);
     border-radius: 0.5rem;
   }
+
+  .frame {
+    background: var(--color-entry-background-hover);
+  }
 }
 
 .skeleton {
