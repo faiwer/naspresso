@@ -1,5 +1,6 @@
 use std::{io, path::Path, time::SystemTime};
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use super::super::{Entry, EntryKind, StorageError, xattr::Pending};
@@ -17,6 +18,8 @@ pub struct ListPage {
     pub pending: Vec<Pending>,
     /// Whether `dir` sits inside an `.nped` directory, and whether that directory is open.
     pub encryption: Encryption,
+    /// When an unlocked directory locks again. `None` unless `encryption` is [`Encryption::Unlocked`].
+    pub lock_at: Option<DateTime<Utc>>,
 }
 
 /// `none` outside an `.nped` directory. `locked` and `unlocked` say whether that directory is open.
@@ -56,13 +59,22 @@ pub async fn list_dir(
     after: Option<EntryKey>,
     limit: usize,
     encryption: Encryption,
+    lock_at: Option<DateTime<Utc>>,
     key: Option<::crypto::Key>,
     has_preview: impl Fn(&Path, SystemTime) -> bool + Send + 'static,
 ) -> Result<ListPage, StorageError> {
     let dir = dir.to_path_buf();
     // One blocking-pool handoff for the whole listing instead of one per syscall.
     tokio::task::spawn_blocking(move || {
-        list_dir_blocking(&dir, after, limit, encryption, key.as_ref(), &has_preview)
+        list_dir_blocking(
+            &dir,
+            after,
+            limit,
+            encryption,
+            lock_at,
+            key.as_ref(),
+            &has_preview,
+        )
     })
     .await
     .map_err(|e| StorageError::Io(io::Error::other(e)))?
@@ -75,6 +87,7 @@ pub(super) fn list_dir_blocking(
     after: Option<EntryKey>,
     limit: usize,
     encryption: Encryption,
+    lock_at: Option<DateTime<Utc>>,
     key: Option<&::crypto::Key>,
     has_preview: &HasPreview,
 ) -> Result<ListPage, StorageError> {
@@ -107,5 +120,6 @@ pub(super) fn list_dir_blocking(
         total,
         pending,
         encryption,
+        lock_at,
     })
 }

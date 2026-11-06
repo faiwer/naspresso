@@ -1,8 +1,10 @@
 use axum::{Router, routing::post};
 
-use super::unlock;
+use super::{lock, unlock};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/crypto/unlock", post(unlock::unlock))
+    Router::new()
+        .route("/crypto/unlock", post(unlock::unlock))
+        .route("/crypto/lock", post(lock::lock))
 }

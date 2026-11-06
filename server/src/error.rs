@@ -12,12 +12,53 @@ use crate::{
     cancel::Cancelled, crypto::CryptoError, preview::PreviewCacheError, storage::StorageError,
 };
 
-/// Top-level error type for handlers. Responds with `{ error, message }`, where
-/// `error` is a stable machine-readable code.
+/// Code sent to the client. The variant name is the wire value (`"WrongPassword"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ClientErrorCode {
+    NoEncryptedFile,
+    WrongPassword,
+    InvalidPath,
+    NotADirectory,
+    NotAFile,
+    NotEncryptedDirectory,
+    InvalidPassword,
+    InvalidContent,
+    InvalidSize,
+    CannotDecrypt,
+    BadRequest,
+    NotFound,
+    RangeNotSupported,
+    UnsupportedMediaType,
+    NotImplemented,
+    Cancelled,
+    Internal,
+}
+
+/// `{ code, message }` body. `message` is the sentence a client shows when it
+/// has no copy for `code`.
+#[derive(Debug, Serialize)]
+pub struct ClientError {
+    pub code: ClientErrorCode,
+    pub message: String,
+}
+
+impl ClientError {
+    pub(crate) fn new(code: ClientErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+/// Top-level error type for handlers. Responds with a [`ClientError`].
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("{0}")]
-    BadRequest(String),
+    #[error("{message}")]
+    BadRequest {
+        code: ClientErrorCode,
+        message: String,
+    },
 
     #[error("not found")]
     NotFound,
@@ -39,16 +80,19 @@ pub enum AppError {
     Internal(#[from] anyhow::Error),
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    error: &'static str,
-    message: String,
-}
-
 impl AppError {
+    /// A 400 whose `code` is finer than [`ClientErrorCode::BadRequest`] when
+    /// the cause has its own variant.
+    pub(crate) fn bad_request(code: ClientErrorCode, message: impl Into<String>) -> Self {
+        Self::BadRequest {
+            code,
+            message: message.into(),
+        }
+    }
+
     fn status(&self) -> StatusCode {
         match self {
-            AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            AppError::BadRequest { .. } => StatusCode::BAD_REQUEST,
             AppError::NotFound => StatusCode::NOT_FOUND,
             AppError::RangeNotSupported => StatusCode::RANGE_NOT_SATISFIABLE,
             AppError::UnsupportedMediaType(_) => StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -59,23 +103,35 @@ impl AppError {
         }
     }
 
-    fn code(&self) -> &'static str {
+    fn code(&self) -> ClientErrorCode {
         match self {
-            AppError::BadRequest(_) => "bad_request",
-            AppError::NotFound => "not_found",
-            AppError::RangeNotSupported => "range_not_supported",
-            AppError::UnsupportedMediaType(_) => "unsupported_media_type",
-            AppError::NotImplemented(_) => "not_implemented",
-            AppError::Cancelled => "cancelled",
-            AppError::Internal(_) => "internal_error",
+            AppError::BadRequest { code, .. } => *code,
+            AppError::NotFound => ClientErrorCode::NotFound,
+            AppError::RangeNotSupported => ClientErrorCode::RangeNotSupported,
+            AppError::UnsupportedMediaType(_) => ClientErrorCode::UnsupportedMediaType,
+            AppError::NotImplemented(_) => ClientErrorCode::NotImplemented,
+            AppError::Cancelled => ClientErrorCode::Cancelled,
+            AppError::Internal(_) => ClientErrorCode::Internal,
         }
+    }
+
+    fn into_client_error(self) -> ClientError {
+        let code = self.code();
+        let message = match self {
+            AppError::Internal(_) => "internal server error".to_owned(),
+            AppError::BadRequest { message, .. } => message,
+            other => other.to_string(),
+        };
+        ClientError::new(code, message)
     }
 }
 
 impl From<PasswordError> for AppError {
     fn from(err: PasswordError) -> Self {
         match err {
-            PasswordError::Length | PasswordError::Symbol => AppError::BadRequest(err.to_string()),
+            PasswordError::Length | PasswordError::Symbol => {
+                AppError::bad_request(ClientErrorCode::InvalidPassword, err.to_string())
+            }
             PasswordError::Derive => AppError::Internal(err.into()),
         }
     }
@@ -84,7 +140,9 @@ impl From<PasswordError> for AppError {
 impl From<CryptoError> for AppError {
     fn from(err: CryptoError) -> Self {
         match err {
-            CryptoError::NotEncryptedDirectory => AppError::BadRequest(err.to_string()),
+            CryptoError::NotEncryptedDirectory => {
+                AppError::bad_request(ClientErrorCode::NotEncryptedDirectory, err.to_string())
+            }
             CryptoError::Storage(err) => err.into(),
             CryptoError::Seal => AppError::Internal(err.into()),
             CryptoError::Content(error) => match error {
@@ -92,7 +150,7 @@ impl From<CryptoError> for AppError {
                 ContentError::Authentication => {
                     AppError::Internal(anyhow::anyhow!("encrypted content failed authentication"))
                 }
-                other => AppError::BadRequest(other.to_string()),
+                other => AppError::bad_request(ClientErrorCode::InvalidContent, other.to_string()),
             },
         }
     }
@@ -101,8 +159,14 @@ impl From<CryptoError> for AppError {
 impl From<StorageError> for AppError {
     fn from(err: StorageError) -> Self {
         match err {
-            StorageError::InvalidPath(_) | StorageError::NotADirectory | StorageError::NotAFile => {
-                AppError::BadRequest(err.to_string())
+            StorageError::InvalidPath(_) => {
+                AppError::bad_request(ClientErrorCode::InvalidPath, err.to_string())
+            }
+            StorageError::NotADirectory => {
+                AppError::bad_request(ClientErrorCode::NotADirectory, err.to_string())
+            }
+            StorageError::NotAFile => {
+                AppError::bad_request(ClientErrorCode::NotAFile, err.to_string())
             }
             StorageError::NotFound => AppError::NotFound,
             StorageError::Io(e) => AppError::Internal(e.into()),
@@ -113,7 +177,9 @@ impl From<StorageError> for AppError {
 impl From<PreviewError> for AppError {
     fn from(err: PreviewError) -> Self {
         match err {
-            PreviewError::InvalidSize(_) => AppError::BadRequest(err.to_string()),
+            PreviewError::InvalidSize(_) => {
+                AppError::bad_request(ClientErrorCode::InvalidSize, err.to_string())
+            }
             PreviewError::UnsupportedFormat(_) | PreviewError::Decode(_) => {
                 AppError::UnsupportedMediaType(err.to_string())
             }
@@ -130,7 +196,7 @@ impl From<PreviewCacheError> for AppError {
             PreviewCacheError::Preview(e) => e.into(),
             PreviewCacheError::Cancelled(Cancelled) => AppError::Cancelled,
             PreviewCacheError::Decrypt => {
-                AppError::BadRequest("cannot decrypt the file".to_owned())
+                AppError::bad_request(ClientErrorCode::CannotDecrypt, err.to_string())
             }
         }
     }
@@ -143,15 +209,7 @@ impl IntoResponse for AppError {
             tracing::error!(error = %err, "internal server error");
         }
 
-        let message = match &self {
-            AppError::Internal(_) => "internal server error".to_owned(),
-            other => other.to_string(),
-        };
-        let body = ErrorBody {
-            error: self.code(),
-            message,
-        };
-
-        (self.status(), Json(body)).into_response()
+        let status = self.status();
+        (status, Json(self.into_client_error())).into_response()
     }
 }

@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::State,
-    http::{HeaderValue, header},
+    http::header,
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Duration, Utc};
@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::{self, Probe},
-    error::AppError,
+    error::{AppError, ClientError, ClientErrorCode},
+    routes::cookie::set_cookie,
     state::AppState,
     storage,
 };
@@ -28,7 +29,7 @@ struct UnlockResponse {
     #[serde(with = "chrono::serde::ts_milliseconds_option")]
     expired_at: Option<DateTime<Utc>>,
     unlocked: bool,
-    error: Option<String>,
+    error: Option<ClientError>,
 }
 
 /// `POST /crypto/unlock`. A directory that is missing or not `.nped` is an HTTP
@@ -43,7 +44,10 @@ pub(super) async fn unlock(
     ::crypto::validate_password(&body.password)?;
 
     let Some(file) = crypto::find_encrypted_file(&dir).await? else {
-        return Ok(rejected("no encrypted file"));
+        return Ok(rejected(
+            ClientErrorCode::NoEncryptedFile,
+            "This folder has no encrypted file to open.",
+        ));
     };
 
     let password = body.password;
@@ -53,43 +57,34 @@ pub(super) async fn unlock(
         .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))??;
 
     if crypto::probe(&file, &key).await? == Probe::Rejected {
-        return Ok(rejected("wrong password"));
+        return Ok(rejected(ClientErrorCode::WrongPassword, "Wrong password."));
     }
 
-    let value = crypto::seal(state.config.npe_seal_key.as_bytes(), &key)?;
+    let expired_at = Utc::now() + Duration::seconds(COOKIE_MAX_AGE);
+    let value = crypto::seal(state.config.npe_seal_key.as_bytes(), &key, expired_at)?;
     let mut response = Json(UnlockResponse {
-        expired_at: Some(Utc::now() + Duration::seconds(COOKIE_MAX_AGE)),
+        expired_at: Some(expired_at),
         unlocked: true,
         error: None,
     })
     .into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        cookie_header(
+        set_cookie(
             &crypto::encode_cookie_name(&body.path),
             &value,
             &state.config.api_prefix,
+            COOKIE_MAX_AGE,
         )?,
     );
     Ok(response)
 }
 
-fn rejected(error: &str) -> Response {
+fn rejected(code: ClientErrorCode, message: &str) -> Response {
     Json(UnlockResponse {
         expired_at: None,
         unlocked: false,
-        error: Some(error.to_owned()),
+        error: Some(ClientError::new(code, message)),
     })
     .into_response()
-}
-
-fn cookie_header(name: &str, value: &str, path: &str) -> Result<HeaderValue, AppError> {
-    let cookie = cookie::Cookie::build((name, value))
-        .http_only(true)
-        .same_site(cookie::SameSite::Lax)
-        .path(path)
-        .max_age(cookie::time::Duration::seconds(COOKIE_MAX_AGE))
-        .build();
-    HeaderValue::from_str(&cookie.to_string())
-        .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
 }

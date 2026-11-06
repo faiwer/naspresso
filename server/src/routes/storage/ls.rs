@@ -3,6 +3,7 @@ use axum::{
     extract::{Query, State},
     http::{HeaderMap, header},
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -10,7 +11,7 @@ use super::{
     vault::open_vault,
 };
 use crate::{
-    error::AppError,
+    error::{AppError, ClientErrorCode},
     state::AppState,
     storage::{self, Encryption, Entry, EntryKey},
 };
@@ -39,6 +40,9 @@ pub struct LsResponse {
     /// `none` when `path` never enters an `.nped` directory. Otherwise `locked`
     /// or `unlocked`, from that directory's cookie.
     encryption: Encryption,
+    /// When an unlocked directory locks again, Unix milliseconds. `null` otherwise.
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
+    lock_at: Option<DateTime<Utc>>,
 }
 
 /// `GET /storage/ls?path=/a/b/c&limit=30&cursor=…`: a page of the directory's
@@ -50,14 +54,15 @@ pub async fn ls(
 ) -> Result<Json<LsResponse>, AppError> {
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
     if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(AppError::BadRequest(format!(
-            "limit must be between 1 and {MAX_LIMIT}"
-        )));
+        return Err(AppError::bad_request(
+            ClientErrorCode::BadRequest,
+            format!("limit must be between 1 and {MAX_LIMIT}"),
+        ));
     }
     let after = query.cursor.as_deref().map(decode_cursor).transpose()?;
 
     let dir = storage::resolve(&state.config.storage, &query.path).await?;
-    let (encryption, key) = open_vault(
+    let opened = open_vault(
         &query.path,
         headers
             .get(header::COOKIE)
@@ -69,8 +74,9 @@ pub async fn ls(
         &dir,
         after,
         limit,
-        encryption,
-        key,
+        opened.encryption,
+        opened.lock_at,
+        opened.key,
         move |path, modified| previews.is_fresh(path, modified),
     )
     .await?;
@@ -92,5 +98,6 @@ pub async fn ls(
         next_cursor,
         total: page.total,
         encryption: page.encryption,
+        lock_at: page.lock_at,
     }))
 }

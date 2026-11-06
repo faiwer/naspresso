@@ -1,5 +1,6 @@
 //! `/crypto/*` endpoints.
 
+mod lock;
 mod router;
 mod unlock;
 

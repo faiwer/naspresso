@@ -50,3 +50,20 @@ type ListStorageOptions = Omit<ApiRequestOptions, "query"> & {
 };
 
 export const isEncryptedFolder = (segment: string) => segment.endsWith(".nped");
+
+export const isWithinEncryptedFolder = (segments: string[]): boolean =>
+  segments.some(isEncryptedFolder);
+
+/**
+ * The innermost `.nped` directory on `segments`. Unlock cookies are stored for
+ * that directory, including when the listing is one of its descendants.
+ */
+export const getEncryptedDirPath = (segments: string[]): string | null => {
+  let end = -1;
+  for (let index = 0; index < segments.length; index++) {
+    if (isEncryptedFolder(segments[index])) {
+      end = index;
+    }
+  }
+  return end < 0 ? null : joinPath(segments.slice(0, end + 1));
+};

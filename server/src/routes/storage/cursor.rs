@@ -4,7 +4,7 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use crate::{
-    error::AppError,
+    error::{AppError, ClientErrorCode},
     storage::{EntryKey, EntryKind},
 };
 
@@ -27,14 +27,17 @@ pub(super) fn encode_cursor(key: &EntryKey) -> String {
 }
 
 pub(super) fn decode_cursor(cursor: &str) -> Result<EntryKey, AppError> {
-    let malformed = || AppError::BadRequest("malformed cursor".into());
+    let malformed = || AppError::bad_request(ClientErrorCode::BadRequest, "malformed cursor");
 
     let bytes = URL_SAFE_NO_PAD.decode(cursor).map_err(|_| malformed())?;
     let [sort, kind, name @ ..] = bytes.as_slice() else {
         return Err(malformed());
     };
     if *sort != SORT_BY_NAME {
-        return Err(AppError::BadRequest("cursor doesn't match sort".into()));
+        return Err(AppError::bad_request(
+            ClientErrorCode::BadRequest,
+            "cursor doesn't match sort",
+        ));
     }
     let kind = match *kind {
         KIND_DIR => EntryKind::Dir,
@@ -63,7 +66,7 @@ mod tests {
     }
 
     fn is_bad_request(result: Result<EntryKey, AppError>) -> bool {
-        matches!(result, Err(AppError::BadRequest(_)))
+        matches!(result, Err(AppError::BadRequest { .. }))
     }
 
     #[test]

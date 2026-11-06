@@ -1,23 +1,44 @@
 use axum::http::{HeaderMap, header};
+use chrono::{DateTime, Utc};
 
-use crate::{crypto, error::AppError, routes::cookie::cookie_value, storage::Encryption};
+use crate::{
+    crypto,
+    error::{AppError, ClientErrorCode},
+    routes::cookie::cookie_value,
+    storage::Encryption,
+};
+
+pub(super) struct OpenedVault {
+    pub encryption: Encryption,
+    pub key: Option<::crypto::Key>,
+    /// When `encryption` is [`Encryption::Unlocked`], the instant it locks again.
+    pub lock_at: Option<DateTime<Utc>>,
+}
 
 /// The innermost `.nped` directory on `path`, and the key its cookie unseals.
-pub(super) fn open_vault(
-    path: &str,
-    cookie: Option<&str>,
-    secret: &[u8; 32],
-) -> (Encryption, Option<::crypto::Key>) {
+pub(super) fn open_vault(path: &str, cookie: Option<&str>, secret: &[u8; 32]) -> OpenedVault {
     let Some(vault) = encrypted_dir(path) else {
-        return (Encryption::None, None);
+        return closed(Encryption::None);
     };
     let name = crypto::encode_cookie_name(&vault);
     let Some(value) = cookie.and_then(|header| cookie_value(header, &name)) else {
-        return (Encryption::Locked, None);
+        return closed(Encryption::Locked);
     };
     match crypto::unseal(secret, value) {
-        Ok(key) => (Encryption::Unlocked, Some(key)),
-        Err(_) => (Encryption::Locked, None),
+        Ok(crypto::SealedKey { key, expired_at }) => OpenedVault {
+            encryption: Encryption::Unlocked,
+            key: Some(key),
+            lock_at: Some(expired_at),
+        },
+        Err(_) => closed(Encryption::Locked),
+    }
+}
+
+fn closed(encryption: Encryption) -> OpenedVault {
+    OpenedVault {
+        encryption,
+        key: None,
+        lock_at: None,
     }
 }
 
@@ -32,12 +53,12 @@ pub(crate) fn vault_key(
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok());
     open_vault(file, cookie, secret)
-        .1
+        .key
         .ok_or_else(cannot_decrypt)
 }
 
 pub(crate) fn cannot_decrypt() -> AppError {
-    AppError::BadRequest("cannot decrypt the file".to_owned())
+    AppError::bad_request(ClientErrorCode::CannotDecrypt, "cannot decrypt the file")
 }
 
 /// `/a/vault.nped/b` → `/a/vault.nped`. The innermost one, when several are on the path.
@@ -66,8 +87,11 @@ mod tests {
     #[test]
     fn a_path_outside_an_encrypted_dir_is_none() {
         let secret = [7u8; 32];
-        assert_eq!(open_vault("", None, &secret).0, Encryption::None);
-        assert_eq!(open_vault("/photos/day", None, &secret).0, Encryption::None);
+        assert_eq!(open_vault("", None, &secret).encryption, Encryption::None);
+        assert_eq!(
+            open_vault("/photos/day", None, &secret).encryption,
+            Encryption::None
+        );
     }
 
     #[test]
@@ -78,23 +102,28 @@ mod tests {
             names: [1; 32],
             contents: [2; 32],
         };
-        assert_eq!(open_vault(path, None, &secret).0, Encryption::Locked);
+        assert_eq!(
+            open_vault(path, None, &secret).encryption,
+            Encryption::Locked
+        );
 
         let outer = crypto::encode_cookie_name("/a.nped");
-        let sealed = crypto::seal(&secret, &key).unwrap();
+        let expired_at = chrono::DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let sealed = crypto::seal(&secret, &key, expired_at).unwrap();
         assert_eq!(
-            open_vault(path, Some(&format!("{outer}={sealed}")), &secret).0,
+            open_vault(path, Some(&format!("{outer}={sealed}")), &secret).encryption,
             Encryption::Locked
         );
         assert_eq!(
-            open_vault(path, Some(&format!("{outer}=sealed")), &secret).0,
+            open_vault(path, Some(&format!("{outer}=sealed")), &secret).encryption,
             Encryption::Locked
         );
 
         let inner = crypto::encode_cookie_name("/a.nped/b.nped");
         let header = format!("other=1; {inner}={sealed}");
-        let (encryption, opened) = open_vault(path, Some(&header), &secret);
-        assert_eq!(encryption, Encryption::Unlocked);
-        assert_eq!(opened.unwrap().names, key.names);
+        let opened = open_vault(path, Some(&header), &secret);
+        assert_eq!(opened.encryption, Encryption::Unlocked);
+        assert_eq!(opened.key.unwrap().names, key.names);
+        assert_eq!(opened.lock_at, Some(expired_at));
     }
 }

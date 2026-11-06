@@ -13,7 +13,7 @@ use tokio_util::io::ReaderStream;
 
 use super::{cannot_decrypt, vault_key};
 use crate::{
-    error::AppError,
+    error::{AppError, ClientErrorCode},
     routes::{
         crypto::COOKIE_MAX_AGE,
         stream::{CacheControl, etag, not_modified, stream},
@@ -139,7 +139,7 @@ async fn authenticate_empty(path: &Path, key: &::crypto::Key) -> Result<(), AppE
 fn download_name(path: &Path) -> Result<&str, AppError> {
     path.file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| AppError::BadRequest("file name is not valid".to_owned()))
+        .ok_or_else(|| AppError::bad_request(ClientErrorCode::BadRequest, "file name is not valid"))
 }
 
 /// `inline`, so a preview still displays. `filename*` is the name the save dialog uses.
@@ -255,7 +255,7 @@ mod tests {
         let error = plaintext_mime(&mut decoded, len, "tiny.gif", &path, &wrong)
             .await
             .unwrap_err();
-        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(matches!(error, AppError::BadRequest { .. }));
     }
 
     struct Temp(PathBuf);

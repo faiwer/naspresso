@@ -29,6 +29,15 @@ export const apiPost = async <T extends z.ZodType>(
   return decodeJson(response, schema);
 };
 
+/** POST `path` with a JSON body. The response has no body (`204`). */
+export const apiPostVoid = async (
+  path: string,
+  body: JsonBody,
+  options: ApiRequestOptions = {},
+): Promise<void> => {
+  await fetchOk(path, { ...options, method: "POST", body });
+};
+
 /** Absolute URL of an API endpoint, for places that load it themselves (`<a href>`, `<img src>`). */
 export const buildApiUrl = (path: string, query?: ApiQuery): string =>
   API_ROOT + buildPath(path, query);

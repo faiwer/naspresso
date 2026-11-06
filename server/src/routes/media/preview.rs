@@ -106,7 +106,7 @@ mod tests {
     fn an_npe_without_a_cookie_is_refused() {
         assert!(matches!(
             open_if_npe("photos/note.npe", &HeaderMap::new(), &[7; 32]),
-            Err(AppError::BadRequest(message)) if message == "cannot decrypt the file"
+            Err(AppError::BadRequest { message, .. }) if message == "cannot decrypt the file"
         ));
     }
 
@@ -128,7 +128,7 @@ mod tests {
         let wrong = format!("vault.nped/{disk}x.npe");
         assert!(matches!(
             open_if_npe(&wrong, &cookie(&file, &secret, &key), &secret),
-            Err(AppError::BadRequest(_))
+            Err(AppError::BadRequest { .. })
         ));
     }
 
@@ -155,7 +155,8 @@ mod tests {
     fn cookie(file: &str, secret: &[u8; 32], key: &::crypto::Key) -> HeaderMap {
         let vault = file.rsplit_once('/').map(|(dir, _)| dir).unwrap_or(file);
         let name = crate::crypto::encode_cookie_name(vault);
-        let value = crate::crypto::seal(secret, key).unwrap();
+        let expired_at = chrono::DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let value = crate::crypto::seal(secret, key, expired_at).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,

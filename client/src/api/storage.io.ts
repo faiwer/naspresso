@@ -61,6 +61,8 @@ export const StorageListPageIo = z.object({
   total: z.number(),
   /** `none` outside an `.nped` directory. `locked` or `unlocked` from its cookie. */
   encryption: EncryptionIo,
+  /** Unix milliseconds when an unlocked folder locks again. `null` otherwise. */
+  lockAt: z.number().nullable(),
 });
 
 export type Hdr = z.infer<typeof HdrIo>;

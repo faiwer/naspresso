@@ -38,7 +38,9 @@ impl Drop for TempDir {
 }
 
 fn list(dir: &Path, after: Option<EntryKey>, limit: usize) -> Result<ListPage, StorageError> {
-    list_dir_blocking(dir, after, limit, Encryption::None, None, &|_, _| false)
+    list_dir_blocking(dir, after, limit, Encryption::None, None, None, &|_, _| {
+        false
+    })
 }
 
 #[test]
@@ -53,9 +55,15 @@ fn an_opened_npe_name_is_shown_decoded() {
     fs::write(tmp.0.join("readme.txt"), b"x").unwrap();
     fs::write(tmp.0.join("zz.npe"), b"x").unwrap();
 
-    let page = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
-        false
-    })
+    let page = list_dir_blocking(
+        &tmp.0,
+        None,
+        10,
+        Encryption::None,
+        None,
+        Some(&key),
+        &|_, _| false,
+    )
     .unwrap();
     let note = file(&page, "note.txt");
     assert_eq!(note.original_name.as_deref(), Some(disk.as_str()));
@@ -79,9 +87,15 @@ fn an_opened_npe_image_is_probed_through_its_plaintext() {
     let broken = ::crypto::encrypt_filename(&key, "bad.gif").unwrap();
     fs::write(tmp.0.join(&broken), b"not an npe").unwrap();
 
-    let page = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
-        false
-    })
+    let page = list_dir_blocking(
+        &tmp.0,
+        None,
+        10,
+        Encryption::None,
+        None,
+        Some(&key),
+        &|_, _| false,
+    )
     .unwrap();
 
     let image = file(&page, "tiny.gif");
@@ -107,9 +121,15 @@ fn an_unlocked_npe_keeps_its_extension_mime_and_seals_a_record() {
         contents: [5; 32],
     };
     write_npe(&tmp.0, &key, "hello.txt", b"hello");
-    let page = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
-        false
-    })
+    let page = list_dir_blocking(
+        &tmp.0,
+        None,
+        10,
+        Encryption::None,
+        None,
+        Some(&key),
+        &|_, _| false,
+    )
     .unwrap();
     assert_eq!(file(&page, "hello.txt").mime, "text/plain");
     assert_eq!(page.pending.len(), 1);
@@ -117,9 +137,15 @@ fn an_unlocked_npe_keeps_its_extension_mime_and_seals_a_record() {
     assert_eq!(page.pending[0].bytes[0], 1);
     crate::storage::write_records(page.pending);
 
-    let again = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
-        false
-    })
+    let again = list_dir_blocking(
+        &tmp.0,
+        None,
+        10,
+        Encryption::None,
+        None,
+        Some(&key),
+        &|_, _| false,
+    )
     .unwrap();
     assert!(again.pending.is_empty());
     assert_eq!(file(&again, "hello.txt").mime, "text/plain");

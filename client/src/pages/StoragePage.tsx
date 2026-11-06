@@ -2,9 +2,11 @@ import { Breadcrumb } from "antd";
 import { useState } from "react";
 import { useLocation } from "react-router";
 
+import { isWithinEncryptedFolder } from "../api/storage";
 import { Frame } from "../com/layout/Frame";
 import { Gap } from "../com/layout/Gap";
 import { PageTitle } from "../com/layout/PageTitle";
+import { EncryptionPanel } from "../com/storage/encryption/EncryptionPanel";
 import { makeSegmentBreadcrumbs } from "../com/storage/SegmentBreadcrumb";
 import { StorageListing } from "../com/storage/StorageListing";
 import { StorageModeSwitch } from "../com/storage/StorageModeSwitch";
@@ -33,7 +35,7 @@ export const StoragePage = () => {
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(
     null,
   );
-  const feed = useStorageFeed(joinPath(segments));
+  const feed = useStorageFeed(path);
 
   // The container outlives directories, so it would keep the previous one's offset.
   useAsyncEffect(() => {
@@ -54,6 +56,16 @@ export const StoragePage = () => {
       }
     >
       <PageTitle title={segments.at(-1) ?? "Storage"} />
+      {isWithinEncryptedFolder(segments) && (
+        <EncryptionPanel
+          key={path}
+          segments={segments}
+          encryption={feed.encryption}
+          lockAt={feed.lockAt}
+          onUnlocked={feed.unlock}
+          onLocked={feed.lock}
+        />
+      )}
       {scrollContainer && (
         <StorageListing
           segments={segments}

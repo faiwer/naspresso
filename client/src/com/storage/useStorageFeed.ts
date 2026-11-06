@@ -20,8 +20,16 @@ export type StorageFeed = {
   loadMore: () => void;
   /** Requests the failed page again. */
   retry: () => void;
+  /** Drops the loaded pages and requests the first one again. */
+  reload: () => void;
   /** The encryption status of the directory. */
   encryption: Encryption;
+  /** When an unlocked directory locks again, Unix milliseconds. `null` otherwise. */
+  lockAt: number | null;
+  /** Requests the directory to unlock again at `unlockAt`. */
+  unlock: (unlockAt: number) => void;
+  /** Requests the directory to lock again. */
+  lock: () => void;
 };
 
 /**
@@ -31,16 +39,23 @@ export type StorageFeed = {
  */
 export const useStorageFeed = (path: string): StorageFeed => {
   const [state, setState] = useState<FeedState>(INITIAL_STATE);
-  // Bumped by `retry` to re-run the fetch effect for the same cursor.
-  const [attempt, setAttempt] = useState(0);
+  // Bumped to re-run the fetch. Stays 0 until the path effect calls `reload`.
+  const [trigger, setTrigger] = useState(0);
+
+  const reload = useStableCallback(() => {
+    setState(() => INITIAL_STATE);
+    setTrigger((prev) => prev + 1);
+  });
 
   useAsyncEffect(() => {
-    setState(INITIAL_STATE);
-    setAttempt(0);
+    reload();
   }, [path]);
 
   useAsyncEffect(
     async (signal) => {
+      // The effect above triggers the 1st fetch.
+      if (trigger === 0) return;
+
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
       try {
         const page = await getListStorage(path, {
@@ -54,6 +69,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
             items: [...prev.items, ...page.items],
             total: page.total,
             encryption: page.encryption,
+            lockAt: page.lockAt,
             nextCursor: page.nextCursor,
             isLoading: false,
           }));
@@ -68,7 +84,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
         }
       }
     },
-    [path, state.cursor, attempt],
+    [state.cursor, trigger],
   );
 
   const canLoadMore =
@@ -80,17 +96,21 @@ export const useStorageFeed = (path: string): StorageFeed => {
     }
   });
 
-  const retry = useStableCallback(() => setAttempt((prev) => prev + 1));
+  const retry = useStableCallback(() => setTrigger((prev) => prev + 1));
 
   return {
     items: state.items,
     total: state.total,
     encryption: state.encryption,
+    lockAt: state.lockAt,
     isLoading: state.isLoading,
     error: state.error,
     canLoadMore,
     loadMore,
     retry,
+    reload,
+    unlock: reload,
+    lock: reload,
   };
 };
 
@@ -98,6 +118,7 @@ type FeedState = {
   items: StorageEntry[];
   total: number | null;
   encryption: Encryption;
+  lockAt: number | null;
   /** The page being fetched or last fetched; `null` for the first one. */
   cursor: string | null;
   /** The page after `items`; `null` on the last page and before the first one arrives. */
@@ -110,6 +131,7 @@ const INITIAL_STATE: FeedState = {
   items: [],
   total: null,
   encryption: "none",
+  lockAt: null,
   cursor: null,
   nextCursor: null,
   isLoading: true,
