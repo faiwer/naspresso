@@ -12,6 +12,10 @@ use media::{Hdr, ImageMetadata};
 const NAME: &[u8] = b"user.naspresso.file\0";
 const VERSION: u8 = 1;
 const HAS_IMAGE: u8 = 1;
+/// Sealed `.npe` record, before the clear version byte.
+const NPE_BODY: usize = 48;
+const NPE_MIME_CAP: usize = 24;
+const OCTET_STREAM: &str = "application/octet-stream";
 
 /// What an earlier listing stored on the file.
 #[derive(Debug, PartialEq, Eq)]
@@ -59,6 +63,40 @@ pub(crate) fn encode(
     Some(bytes)
 }
 
+/// The sealed record on an `.npe` file. `decrypted_file_name` is the cipher tweak.
+pub(crate) fn load_npe(
+    path: &Path,
+    modified: SystemTime,
+    key: &[u8; 32],
+    decrypted_file_name: &str,
+) -> Option<Cached> {
+    open_sealed(&read_attr(path)?, modified, key, decrypted_file_name)
+}
+
+/// A sealed record for an `.npe` file, captured now. A mime longer than [`NPE_MIME_CAP`]
+/// is stored as [`OCTET_STREAM`].
+pub(crate) fn pending_npe(
+    npe_file_path: &Path,
+    mime: &str,
+    image: Option<ImageMetadata>,
+    key: &[u8; 32],
+    decrypted_file_name: &str,
+) -> Option<Pending> {
+    let stored_at = SystemTime::now();
+    Some(Pending {
+        path: npe_file_path.to_owned(),
+        bytes: seal_record(mime, image, stored_at, key, decrypted_file_name)?,
+    })
+}
+
+fn cap_mime(mime: &str) -> &str {
+    if mime.len() > NPE_MIME_CAP {
+        OCTET_STREAM
+    } else {
+        mime
+    }
+}
+
 /// A record for `path`, captured now. `None` when it would be older than `modified`
 /// or the mime type cannot be stored.
 pub(crate) fn pending(
@@ -88,6 +126,121 @@ pub(crate) fn write_records(pending: Vec<Pending>) {
             );
         }
     }
+}
+
+fn seal_record(
+    mime: &str,
+    image: Option<ImageMetadata>,
+    stored_at: SystemTime,
+    key: &[u8; 32],
+    decrypted_file_name: &str,
+) -> Option<Vec<u8>> {
+    let plain = encode_body(mime, image, stored_at)?;
+    let cipher = ::crypto::seal_xattr(key, decrypted_file_name.as_bytes(), &plain);
+    let mut bytes = Vec::with_capacity(1 + NPE_BODY);
+    bytes.push(VERSION);
+    bytes.extend_from_slice(&cipher);
+    Some(bytes)
+}
+
+fn open_sealed(
+    bytes: &[u8],
+    modified: SystemTime,
+    key: &[u8; 32],
+    decrypted_file_name: &str,
+) -> Option<Cached> {
+    if bytes.len() != 1 + NPE_BODY || bytes[0] != VERSION {
+        return None;
+    }
+    let plain = ::crypto::open_xattr(key, decrypted_file_name.as_bytes(), &bytes[1..]);
+    decode_body(&plain, modified)
+}
+
+fn encode_body(
+    mime: &str,
+    image: Option<ImageMetadata>,
+    stored_at: SystemTime,
+) -> Option<[u8; NPE_BODY]> {
+    let mime = cap_mime(mime);
+    if mime.is_empty() {
+        return None;
+    }
+
+    let (secs, nanos) = parts(stored_at)?;
+
+    let mime_bytes = mime.as_bytes();
+    let mime_len = u8::try_from(mime_bytes.len()).ok()?;
+
+    let mut body = [0u8; NPE_BODY];
+    let mut at = 0;
+
+    body[at] = u8::from(image.is_some());
+    at += 1;
+
+    body[at..at + 8].copy_from_slice(&secs.to_le_bytes());
+    at += 8;
+    body[at..at + 4].copy_from_slice(&nanos.to_le_bytes());
+    at += 4;
+
+    body[at] = mime_len;
+    at += 1;
+    body[at..at + mime_bytes.len()].copy_from_slice(mime_bytes);
+    at += mime_bytes.len();
+
+    if let Some(image) = image {
+        body[at..at + 4].copy_from_slice(&image.width.to_le_bytes());
+        at += 4;
+        body[at..at + 4].copy_from_slice(&image.height.to_le_bytes());
+        at += 4;
+        body[at] = u8::from(image.hdr);
+        at += 1;
+        body[at] = u8::from(image.animated);
+        at += 1;
+    }
+
+    if at < NPE_BODY {
+        getrandom::fill(&mut body[at..]).ok()?;
+    }
+
+    Some(body)
+}
+
+/// Like [`decode`], and the bytes after the logical record are padding.
+fn decode_body(bytes: &[u8], modified: SystemTime) -> Option<Cached> {
+    let mut rest = bytes;
+    let flags = take_u8(&mut rest)?;
+    if flags & !HAS_IMAGE != 0 {
+        return None;
+    }
+
+    let stored_at = time_from_parts(take_u64(&mut rest)?, take_u32(&mut rest)?)?;
+    if stored_at < modified {
+        return None;
+    }
+
+    let mime_len = usize::from(take_u8(&mut rest)?);
+    if mime_len == 0 || mime_len > NPE_MIME_CAP {
+        return None;
+    }
+    let mime = std::str::from_utf8(take(&mut rest, mime_len)?).ok()?;
+    let mime = mime.to_owned();
+
+    let image = if flags & HAS_IMAGE == 0 {
+        None
+    } else {
+        Some(ImageMetadata {
+            width: take_u32(&mut rest)?,
+            height: take_u32(&mut rest)?,
+            hdr: Hdr::try_from(take_u8(&mut rest)?).ok()?,
+            animated: match take_u8(&mut rest)? {
+                0 => false,
+                1 => true,
+                _ => return None,
+            },
+        })
+    };
+
+    Some(Cached { mime, image })
 }
 
 fn decode(bytes: &[u8], modified: SystemTime) -> Option<Cached> {
@@ -320,5 +473,61 @@ mod tests {
         let start = unknown.len() - "text/plain".len();
         unknown[start] = 0xff;
         assert_eq!(decode(&unknown, at(1)), None);
+    }
+
+    #[test]
+    fn a_sealed_image_and_a_sealed_mime_have_one_length() {
+        let names = [0x11; 32];
+        let stored = at(50);
+        let image = ImageMetadata {
+            width: 4,
+            height: 5,
+            hdr: Hdr::GainMap,
+            animated: true,
+        };
+        let picture = seal_record("image/jpeg", Some(image), stored, &names, "a.jpg").unwrap();
+        let text = seal_record("text/plain", None, stored, &names, "a.jpg").unwrap();
+        let again = seal_record("text/plain", None, stored, &names, "a.jpg").unwrap();
+        assert_eq!(picture.len(), 1 + NPE_BODY);
+        assert_eq!(text.len(), picture.len());
+        assert_eq!(picture[0], VERSION);
+        assert_ne!(picture, text);
+        assert_ne!(text, again);
+        assert_eq!(
+            open_sealed(&picture, at(50), &names, "a.jpg"),
+            Some(Cached {
+                mime: "image/jpeg".to_owned(),
+                image: Some(image),
+            })
+        );
+        assert_eq!(
+            open_sealed(&text, at(10), &names, "a.jpg"),
+            Some(Cached {
+                mime: "text/plain".to_owned(),
+                image: None,
+            })
+        );
+        assert_eq!(open_sealed(&picture, at(51), &names, "a.jpg"), None);
+        assert_ne!(
+            open_sealed(&picture, at(50), &names, "b.jpg"),
+            Some(Cached {
+                mime: "image/jpeg".to_owned(),
+                image: Some(image),
+            })
+        );
+    }
+
+    #[test]
+    fn a_mime_past_the_cap_is_stored_as_octet_stream() {
+        let names = [0x11; 32];
+        let long = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        let bytes = seal_record(long, None, at(50), &names, "deck.pptx").unwrap();
+        assert_eq!(
+            open_sealed(&bytes, at(1), &names, "deck.pptx"),
+            Some(Cached {
+                mime: OCTET_STREAM.to_owned(),
+                image: None,
+            })
+        );
     }
 }

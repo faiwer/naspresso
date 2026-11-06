@@ -13,7 +13,7 @@ const TEXT_MAX_LEN: u64 = 512 * 1024;
 const FALLBACK_MIME: &str = "application/octet-stream";
 
 /// Naspresso encrypted file.
-const NPE_MIME: &str = "naspresso/npe";
+pub(crate) const NPE_MIME: &str = "naspresso/npe";
 
 /// `NSPE`, the NPE content header.
 const NPE_MAGIC: &[u8; 4] = b"NSPE";

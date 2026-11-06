@@ -302,7 +302,7 @@ fn describe(
     if sorted.decoded
         && let Some(key) = key
     {
-        return describe_open_npe(path, Path::new(&sorted.name), modified, key);
+        return describe_open_npe(path, &sorted.name, modified, key);
     }
     describe_regular_file(path, file_size, modified)
 }
@@ -311,20 +311,24 @@ fn describe(
 /// The decoded name supplies the extension. A reader that does not open leaves the
 /// ciphertext's own type.
 fn describe_open_npe(
-    path: &Path,
-    display_path: &Path,
+    npe_file_path: &Path,
+    decrypted_file_name: &str,
     modified: SystemTime,
     key: &::crypto::Key,
 ) -> Described {
-    if is_image_path(display_path) {
-        return describe_open_image(path, display_path, modified, key);
+    let decrypted_path = Path::new(decrypted_file_name);
+    if is_image_path(decrypted_path) {
+        return describe_npe_image(npe_file_path, decrypted_file_name, modified, key);
     }
-    // A known extension is the type. `file_mime` would sniff, and `display` is the
-    // decoded name, not a path on disk.
-    if !mime::needs_sniff(display_path, 1) {
-        return declared(display_path);
+
+    // A known extension is the type. `file_mime` would sniff, and
+    // `decrypted_path` is the decoded name, not a path on disk.
+    if !mime::needs_sniff(decrypted_path, 1) {
+        return declared_npe(npe_file_path, decrypted_file_name, modified, key);
     }
-    if let Some(cached) = xattr::load(path, modified) {
+
+    if let Some(cached) = xattr::load_npe(npe_file_path, modified, &key.names, decrypted_file_name)
+    {
         return Described {
             mime: cached.mime,
             image: None,
@@ -332,63 +336,102 @@ fn describe_open_npe(
         };
     }
 
-    let Some((plain_len, mut reader)) = open_reader(path, key) else {
-        return describe_regular_file(path, 0, modified);
+    let Some((plain_len, mut reader)) = open_npe_reader(npe_file_path, key) else {
+        return unreadable_npe(npe_file_path);
     };
-    if mime::needs_sniff(display_path, plain_len)
-        && let Some(mime) = sniff_plain(&mut reader, plain_len, display_path)
+    if mime::needs_sniff(decrypted_path, plain_len)
+        && let Some(mime) = sniff_plain(&mut reader, plain_len, decrypted_path)
     {
         return Described {
-            pending: xattr::pending(path, mime, None, modified),
+            pending: xattr::pending_npe(npe_file_path, mime, None, &key.names, decrypted_file_name),
+            // If `mime` is too long, it's stored as `application/octet-stream`.
+            // Why? To avoid the xattr being too long. Why? On ext4 if we keep
+            // it below 56 Bytes the metadata is fast-available.
             mime: mime.to_owned(),
             image: None,
         };
     }
-    declared(display_path)
+    declared_npe(npe_file_path, decrypted_file_name, modified, key)
 }
 
-fn describe_open_image(
-    path: &Path,
-    display: &Path,
+fn describe_npe_image(
+    npe_file_path: &Path,
+    decrypted_file_name: &str,
     modified: SystemTime,
     key: &::crypto::Key,
 ) -> Described {
-    if let Some(cached) = xattr::load(path, modified) {
+    if let Some(cached) = xattr::load_npe(npe_file_path, modified, &key.names, decrypted_file_name)
+    {
         return Described {
             mime: cached.mime,
             image: cached.image,
             pending: None,
         };
     }
-    let Some((_, reader)) = open_reader(path, key) else {
-        return describe_regular_file(path, 0, modified);
+    let Some((_, reader)) = open_npe_reader(npe_file_path, key) else {
+        return unreadable_npe(npe_file_path);
     };
-    match probe_reader(display, reader) {
+    let decrypted_file_path = Path::new(decrypted_file_name);
+
+    match probe_reader(decrypted_file_path, reader) {
         Ok(Some(probe)) => Described {
-            pending: xattr::pending(path, probe.mime, probe.image, modified),
+            pending: xattr::pending_npe(
+                npe_file_path,
+                probe.mime,
+                probe.image,
+                &key.names,
+                decrypted_file_name,
+            ),
             mime: probe.mime.to_owned(),
             image: probe.image,
         },
-        _ => declared(display),
+        _ => declared_npe(npe_file_path, decrypted_file_name, modified, key),
     }
 }
 
-fn declared(display: &Path) -> Described {
+/// The extension's mime, plus a sealed attribute when this file does not have a fresh one.
+fn declared_npe(
+    npe_file_path: &Path,
+    decrypted_file_name: &str,
+    modified: SystemTime,
+    key: &::crypto::Key,
+) -> Described {
+    let mime = mime::declared_mime(Path::new(decrypted_file_name));
+
+    if xattr::load_npe(npe_file_path, modified, &key.names, decrypted_file_name).is_some() {
+        // Discard the xattr value, since is has nothing but the mime type. And
+        // if the source file's mime is too long the mime from the xattr is a
+        // fallback. Thus, derive it from the decrypted name instead.
+        return Described {
+            mime: mime.to_owned(),
+            image: None,
+            pending: None,
+        };
+    }
+
     Described {
-        mime: mime::declared_mime(display).to_owned(),
+        mime: mime.to_owned(),
+        image: None,
+        pending: xattr::pending_npe(npe_file_path, mime, None, &key.names, decrypted_file_name),
+    }
+}
+
+fn unreadable_npe(original_path: &Path) -> Described {
+    Described {
+        mime: mime::declared_mime(original_path).to_owned(),
         image: None,
         pending: None,
     }
 }
 
-fn open_reader(
-    path: &Path,
+fn open_npe_reader(
+    npe_file_path: &Path,
     key: &::crypto::Key,
 ) -> Option<(u64, std::io::BufReader<::crypto::ContentFile<fs::File>>)> {
-    let plain = match open_plain(path, key) {
+    let plain = match open_plain(npe_file_path, key) {
         Ok(plain) => plain,
         Err(error) => {
-            tracing::debug!(error = %error, path = %path.display(), "can't open encrypted content");
+            tracing::debug!(error = %error, path = %npe_file_path.display(), "can't open encrypted content");
             return None;
         }
     };
@@ -431,6 +474,16 @@ fn sniff_plain<R: std::io::Read>(
 }
 
 fn describe_regular_file(path: &Path, file_size: u64, modified: SystemTime) -> Described {
+    // A sealed `.npe` xattr might have been written while the vault was open.
+    // We cannot read it without decrypting anyway.
+    if mime::declared_mime(path) == mime::NPE_MIME {
+        return Described {
+            mime: mime::NPE_MIME.to_owned(),
+            image: None,
+            pending: None,
+        };
+    }
+
     let cacheable = is_image_path(path) || mime::needs_sniff(path, file_size);
     if cacheable && let Some(cached) = xattr::load(path, modified) {
         return Described {
@@ -562,6 +615,41 @@ mod tests {
         let failed = file(&page, "bad.gif");
         assert_eq!(failed.mime, "naspresso/npe");
         assert!(failed.image.is_none());
+    }
+
+    #[test]
+    fn an_unlocked_npe_keeps_its_extension_mime_and_seals_a_record() {
+        let tmp = TempDir::new("npe-cache");
+        let key = ::crypto::Key {
+            names: [4; 32],
+            contents: [5; 32],
+        };
+        write_npe(&tmp.0, &key, "hello.txt", b"hello");
+        let page = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
+            false
+        })
+        .unwrap();
+        assert_eq!(file(&page, "hello.txt").mime, "text/plain");
+        assert_eq!(page.pending.len(), 1);
+        assert_eq!(page.pending[0].bytes.len(), 49);
+        assert_eq!(page.pending[0].bytes[0], 1);
+        crate::storage::write_records(page.pending);
+
+        let again = list_dir_blocking(&tmp.0, None, 10, Encryption::None, Some(&key), &|_, _| {
+            false
+        })
+        .unwrap();
+        assert!(again.pending.is_empty());
+        assert_eq!(file(&again, "hello.txt").mime, "text/plain");
+    }
+
+    #[test]
+    fn a_sealed_npe_is_not_given_an_xattr() {
+        let tmp = TempDir::new("npe-sealed");
+        tmp.file("secret.npe");
+        let page = list(&tmp.0, None, 10).unwrap();
+        assert_eq!(file(&page, "secret.npe").mime, "naspresso/npe");
+        assert!(page.pending.is_empty());
     }
 
     fn write_npe(dir: &Path, key: &::crypto::Key, name: &str, plain: &[u8]) -> String {
