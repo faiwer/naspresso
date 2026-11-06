@@ -63,7 +63,7 @@ export const PreviewFrame = ({
             // Force early decoding to avoid layout thrashing when the swipe starts.
             imageRef.current!.decode();
           }}
-          src={getEntryFileUrl(segments, file)}
+          src={getEntryFileUrl(segments, file, file.originalName != null)}
           alt={file.name}
           draggable={false}
         />
