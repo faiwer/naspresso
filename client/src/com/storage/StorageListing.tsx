@@ -5,7 +5,7 @@ import { ScrollSentinel } from "../layout/ScrollSentinel";
 import { StorageMasonry } from "./masonry/StorageMasonry";
 import { StorageList, type StorageViewProps } from "./StorageList";
 import { StorageTable } from "./StorageTable";
-import { StorageThumbnails } from "./StorageThumbnails";
+import { StorageThumbnails } from "./thumbnails/StorageThumbnails";
 import { useOpenStorageImage } from "./useOpenStorageImage";
 import { STORAGE_PAGE_SIZE, type StorageFeed } from "./useStorageFeed";
 import type { StorageViewMode } from "./viewMode";
