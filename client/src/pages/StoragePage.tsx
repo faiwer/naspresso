@@ -64,6 +64,7 @@ export const StoragePage = () => {
           lockAt={feed.lockAt}
           onUnlocked={feed.unlock}
           onLocked={feed.lock}
+          onPostponed={feed.postpone}
         />
       )}
       {scrollContainer && (

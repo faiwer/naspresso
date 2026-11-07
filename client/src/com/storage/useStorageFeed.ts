@@ -30,6 +30,8 @@ export type StorageFeed = {
   unlock: (unlockAt: number) => void;
   /** Requests the directory to lock again. */
   lock: () => void;
+  /** Requests the directory to postpone again. */
+  postpone: (expiredAt: number) => void;
 };
 
 /**
@@ -98,6 +100,10 @@ export const useStorageFeed = (path: string): StorageFeed => {
 
   const retry = useStableCallback(() => setTrigger((prev) => prev + 1));
 
+  const postpone = useStableCallback((expiredAt: number) => {
+    setState((prev) => ({ ...prev, lockAt: expiredAt }));
+  });
+
   return {
     items: state.items,
     total: state.total,
@@ -111,6 +117,7 @@ export const useStorageFeed = (path: string): StorageFeed => {
     reload,
     unlock: reload,
     lock: reload,
+    postpone,
   };
 };
 

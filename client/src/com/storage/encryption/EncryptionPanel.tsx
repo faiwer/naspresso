@@ -14,6 +14,8 @@ type EncryptionPanelProps = {
   onUnlocked: (unlockAt: number) => void;
   /** Refetch the listing after the directory locks. */
   onLocked: () => void;
+  /** Refetch the listing after the directory postpones. */
+  onPostponed: (expiredAt: number) => void;
 };
 
 /**
@@ -26,6 +28,7 @@ export const EncryptionPanel = ({
   lockAt,
   onUnlocked,
   onLocked,
+  onPostponed,
 }: EncryptionPanelProps) => {
   const path = nullthrows(getEncryptedDirPath(segments));
 
@@ -35,6 +38,7 @@ export const EncryptionPanel = ({
         vaultPath={path}
         deadline={nullthrows(lockAt)}
         onLocked={onLocked}
+        onPostponed={onPostponed}
       />
     );
   }

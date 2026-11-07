@@ -22,3 +22,6 @@ export const lockNPED = (
 ): Promise<void> => apiPostVoid("/crypto/lock", { path }, options);
 
 export const NPE_PASSWORD_LENGTH = 64;
+
+/** How long the NPE-unlock cookie lasts in minutes. Keep in touch with the backend. */
+export const MAX_NPE_COOKIE_DURATION_M = 15;

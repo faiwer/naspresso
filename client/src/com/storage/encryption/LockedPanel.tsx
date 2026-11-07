@@ -1,13 +1,13 @@
 import { LockFilled, UnlockFilled } from "@ant-design/icons";
-import { Alert, App, Button, Input } from "antd";
+import { Alert, App, Button } from "antd";
 import { useState } from "react";
 
 import { unlockNPED, NPE_PASSWORD_LENGTH } from "../../../api/crypto";
-import type { Unlock } from "../../../api/crypto.io";
 import { nullthrows } from "../../../core/helpers/nullthrows";
 import { useAsync } from "../../../core/hooks/useAsync";
 import { useErrorToast } from "../../../core/hooks/useErrorToast";
 import { ALERT_STYLES } from "./alertStyles";
+import { getFailureMessage, PasswordField } from "./form";
 
 import styles from "./EncryptionPanel.module.css";
 
@@ -65,15 +65,7 @@ export const LockedPanel = ({ vaultPath, onUnlocked }: LockedPanelProps) => {
               void onSubmit();
             }}
           >
-            <Input.Password
-              className={styles.password}
-              value={password}
-              placeholder="Password"
-              autoComplete="off"
-              aria-label="Password"
-              autoFocus
-              onChange={(event) => setPassword(event.target.value)}
-            />
+            <PasswordField password={password} setPassword={setPassword} />
             <Button
               type="primary"
               htmlType="submit"
@@ -87,15 +79,4 @@ export const LockedPanel = ({ vaultPath, onUnlocked }: LockedPanelProps) => {
       }
     />
   );
-};
-
-const getFailureMessage = (error: Unlock["error"] | null): string => {
-  switch (error?.code) {
-    case "WrongPassword":
-      return "Wrong password.";
-    case "NoEncryptedFile":
-      return "This folder has no encrypted file to open.";
-    default:
-      return `Couldn't unlock this folder. ${error?.message}`;
-  }
 };
